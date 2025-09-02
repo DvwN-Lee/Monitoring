@@ -42,11 +42,61 @@ docker-compose up --build
 
 ### Kubernetes (Skaffold)
 
+아래 단계대로 실행하면 로컬 클러스터에서 대시보드를 확인할 수 있습니다.
+
+1) 전제 조건 설치
+- Docker, kubectl, Skaffold
+- 로컬 K8s 클러스터(택1): minikube 또는 kind
+
+2) 클러스터 준비
+- minikube 사용 시
+  ```bash
+  minikube start
+  # skaffold가 빌드한 이미지를 바로 사용하도록 로컬 Docker 데몬 연결
+  eval "$(minikube -p minikube docker-env)"
+  ```
+- kind 사용 시 (최초 1회)
+  ```bash
+  kind create cluster
+  # skaffold가 빌드 이미지를 kind 노드에 자동 로드하도록 설정
+  skaffold config set --global local-cluster true
+  ```
+
+3) 배포 실행 (프로젝트 루트에서)
 ```bash
 skaffold dev
 ```
+빌드 완료 후 `titanium-local` 네임스페이스로 리소스가 배포됩니다.
 
-`k8s-manifests/`의 Kustomize 구성과 `skaffold.yaml` 빌드 설정을 사용하여 로컬 클러스터에 배포합니다.
+4) 상태 확인
+```bash
+kubectl -n titanium-local get pods,svc
+```
+
+5) 브라우저 접속
+- minikube:
+  ```bash
+  minikube service local-load-balancer-service -n titanium-local --url
+  ```
+  출력된 URL을 브라우저로 열기 (예: http://127.0.0.1:30700)
+- kind/그 외:
+  ```bash
+  kubectl -n titanium-local port-forward svc/local-load-balancer-service 7100:7100
+  ```
+  브라우저에서 http://localhost:7100 접속
+
+6) 동작 확인
+```bash
+curl -s http://localhost:7100/stats | jq .   # 집계 지표
+```
+
+7) 종료/정리
+```bash
+# skaffold 개발 모드 중지
+Ctrl + C
+# 배포 리소스 정리
+skaffold delete
+```
 
 ## 의존성
 
