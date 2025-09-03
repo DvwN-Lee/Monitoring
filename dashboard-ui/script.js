@@ -7,6 +7,16 @@ const config = {
     maxChartPoints: 30,
     maxLogEntries: 50,
     maxAlerts: 5,
+    // 하트비트(옵션): 정적 루트로 HEAD 요청을 주기적으로 보내
+    // LB의 통계 미들웨어가 RPS/응답시간을 지속 갱신하도록 유도
+    heartbeat: {
+        enabled: true,
+        path: '/',       // LB가 "/" 경로를 UI로 프록시하므로 미들웨어에 포착됨
+        method: 'HEAD',  // 콘텐츠 전송 없이 빠른 왕복
+        interval: 2000,  // 기본 refreshInterval과 동일 주기
+        headerName: 'X-Heartbeat',
+        headerValue: 'true',
+    },
 };
 
 // ==================================
@@ -33,6 +43,7 @@ const eventBus = {
 const apiService = {
     monitoringEnabled: true,
     fetchIntervalId: null,
+    heartbeatIntervalId: null,
     async fetchAllStats() {
         if (!this.monitoringEnabled) return;
         try {
@@ -46,6 +57,18 @@ const apiService = {
             eventBus.publish('fetchError', { error, isFetchSuccess: false });
         }
     },
+    async sendHeartbeat() {
+        if (!config.heartbeat.enabled) return;
+        try {
+            await fetch(config.heartbeat.path, {
+                method: config.heartbeat.method,
+                cache: 'no-store',
+                headers: { [config.heartbeat.headerName]: config.heartbeat.headerValue },
+            });
+        } catch (_) {
+            // 하트비트 실패는 조용히 무시 (RPS/응답시간 유지를 위한 보조 수단)
+        }
+    },
     async resetAllStats() {
         // 이 기능은 현재 구현되지 않았습니다.
         console.warn('Reset stats functionality is not implemented in the backend.');
@@ -56,11 +79,17 @@ const apiService = {
         this.fetchAllStats();
         if (this.fetchIntervalId) clearInterval(this.fetchIntervalId);
         this.fetchIntervalId = setInterval(() => this.fetchAllStats(), config.refreshInterval);
+        // 하트비트 루프 시작
+        if (config.heartbeat.enabled) {
+            if (this.heartbeatIntervalId) clearInterval(this.heartbeatIntervalId);
+            this.heartbeatIntervalId = setInterval(() => this.sendHeartbeat(), config.heartbeat.interval);
+        }
         eventBus.publish('log', { message: 'Monitoring started.' });
     },
     stop() {
         this.monitoringEnabled = false;
         if (this.fetchIntervalId) clearInterval(this.fetchIntervalId);
+        if (this.heartbeatIntervalId) clearInterval(this.heartbeatIntervalId);
         eventBus.publish('log', { message: 'Monitoring paused.' });
     }
 };
@@ -89,6 +118,11 @@ const chartModule = {
         eventBus.subscribe('reset', () => this.reset());
     },
     update(stats) {
+        const lb = stats?.['load-balancer'];
+        if (lb && lb.has_real_traffic === false) {
+            // 실제 트래픽이 없으면 차트 포인트를 추가하지 않음
+            return;
+        }
         const now = new Date().toLocaleTimeString();
         const updateChart = (chart, data) => {
             if (!chart) return;
@@ -171,6 +205,18 @@ const statusModule = {
         }
 
         const lbData = stats['load-balancer'];
+        const hasReal = lbData?.has_real_traffic === true;
+        if (!hasReal) {
+            // Idle 상태 표기 및 지표 값은 0 또는 유지
+            this.elements.overallStatus.textContent = 'IDLE';
+            this.elements.overallStatus.className = 'metric-value metric-warning';
+            this.elements.currentRps.textContent = '0.0';
+            this.elements.avgResponseTime.textContent = '0ms';
+            this.elements.errorRate.textContent = '0.0%';
+            // 서버 리스트는 LB만 Healthy로 표기 유지
+            this.updateServerList(stats, true);
+            return;
+        }
         const serviceStates = this.updateServerList(stats, true);
         const healthyCount = serviceStates.filter(s => s.isHealthy).length;
         const totalCount = serviceStates.length;
