@@ -141,10 +141,14 @@ func main() {
 	blogServiceURL := getEnv("BLOG_SERVICE_URL", "http://local-blog-service:8005")
 	userServiceURL := getEnv("USER_SERVICE_URL", "http://local-user-service:8001")
 
+	// 블로그 SPA 프록시용 URL 파싱
+	blogProxyURL, _ := url.Parse(blogServiceURL)
+
 	port := getEnv("LB_PORT", "7100")
 	mux := http.NewServeMux()
 	apiProxy := newProxy(apiGatewayURL)
 	uiProxy := newProxy(dashboardUIURL)
+	blogProxy := newProxy(blogProxyURL)
 
 	// --- [핵심] /stats 핸들러 최종 수정 ---
     mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +255,18 @@ func main() {
 
 	// --- 라우팅 등록 순서 수정 ---
 	mux.HandleFunc("/lb-health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	// 블로그 SPA 경로 프록시 (/blog 및 /blog/*)
+	mux.HandleFunc("/blog", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/blog" {
+			http.Redirect(w, r, "/blog/", http.StatusPermanentRedirect)
+			return
+		}
+		blogProxy.ServeHTTP(w, r)
+	})
+	mux.Handle("/blog/", statsMiddleware(blogProxy))
+
+	// API 및 기본 UI 라우팅
 	mux.Handle("/api/", statsMiddleware(apiProxy))
 	mux.Handle("/", statsMiddleware(uiProxy)) // 모든 요청을 통계 미들웨어로 감쌈
 
