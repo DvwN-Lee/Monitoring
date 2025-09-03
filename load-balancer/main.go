@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,6 +22,16 @@ type StatsCollector struct {
 	totalRequests     int64
 	successCount      int64
 	totalResponseTime time.Duration
+
+	// 최근 응답시간 샘플(전체)
+	responseSamples []struct{ ts time.Time; dur time.Duration }
+
+	// 실제 API 요청만 분리 집계 (대시보드 지표 반영용)
+	apiRequests          []time.Time
+	apiTotalRequests     int64
+	apiSuccessCount      int64
+	apiTotalResponseTime time.Duration
+	apiResponseSamples   []struct{ ts time.Time; dur time.Duration }
 }
 type requestMetrics map[string]interface{}
 
@@ -28,21 +39,53 @@ var stats = &StatsCollector{}
 
 // --- 통계 측정 미들웨어 ---
 func statsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		startTime := time.Now()
-		resWrapper := &responseWriterInterceptor{ResponseWriter: w, statusCode: http.StatusOK}
-		next.ServeHTTP(resWrapper, r)
-		duration := time.Since(startTime)
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        startTime := time.Now()
+        resWrapper := &responseWriterInterceptor{ResponseWriter: w, statusCode: http.StatusOK}
+        next.ServeHTTP(resWrapper, r)
+        duration := time.Since(startTime)
 
-		stats.mu.Lock()
-		stats.totalRequests++
-		stats.requests = append(stats.requests, time.Now())
-		if resWrapper.statusCode >= 200 && resWrapper.statusCode < 400 {
-			stats.successCount++
-		}
-		stats.totalResponseTime += duration
-		stats.mu.Unlock()
-	})
+        stats.mu.Lock()
+        now := time.Now()
+        stats.totalRequests++
+        stats.requests = append(stats.requests, now)
+        if resWrapper.statusCode >= 200 && resWrapper.statusCode < 400 {
+            stats.successCount++
+        }
+        stats.totalResponseTime += duration
+        stats.responseSamples = append(stats.responseSamples, struct{ ts time.Time; dur time.Duration }{ts: now, dur: duration})
+
+        // 실제 API 요청만 별도로 집계 (하트비트/정적자원 제외)
+        isAPI := strings.HasPrefix(r.URL.Path, "/api/")
+        isHeartbeat := r.Header.Get("X-Heartbeat") == "true" || r.Method == "HEAD"
+        if isAPI && !isHeartbeat {
+            stats.apiTotalRequests++
+            stats.apiRequests = append(stats.apiRequests, now)
+            if resWrapper.statusCode >= 200 && resWrapper.statusCode < 400 {
+                stats.apiSuccessCount++
+            }
+            stats.apiTotalResponseTime += duration
+            stats.apiResponseSamples = append(stats.apiResponseSamples, struct{ ts time.Time; dur time.Duration }{ts: now, dur: duration})
+        }
+
+        // 오래된 샘플 정리 (60초 이전 제거)
+        cutoff := now.Add(-60 * time.Second)
+        if len(stats.responseSamples) > 0 {
+            var kept []struct{ ts time.Time; dur time.Duration }
+            for _, s := range stats.responseSamples {
+                if s.ts.After(cutoff) { kept = append(kept, s) }
+            }
+            stats.responseSamples = kept
+        }
+        if len(stats.apiResponseSamples) > 0 {
+            var kept []struct{ ts time.Time; dur time.Duration }
+            for _, s := range stats.apiResponseSamples {
+                if s.ts.After(cutoff) { kept = append(kept, s) }
+            }
+            stats.apiResponseSamples = kept
+        }
+        stats.mu.Unlock()
+    })
 }
 
 // ... responseWriterInterceptor, getEnv, newProxy는 이전과 동일 ...
@@ -104,39 +147,62 @@ func main() {
 	uiProxy := newProxy(dashboardUIURL)
 
 	// --- [핵심] /stats 핸들러 최종 수정 ---
-	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		stats.mu.Lock()
-		// RPS 계산: 최근 10초간의 요청 수를 10으로 나눔
-		now := time.Now()
-		tenSecondsAgo := now.Add(-10 * time.Second)
-		var recentRequests int
-		var newRequests []time.Time
-		for _, t := range stats.requests {
-			if t.After(tenSecondsAgo) {
-				recentRequests++
-				newRequests = append(newRequests, t)
-			}
-		}
-		stats.requests = newRequests // 오래된 요청 기록은 삭제
-		rps := float64(recentRequests) / 10.0
+    mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+        stats.mu.Lock()
+        // RPS 계산: 최근 10초간의 실제 API 요청 수를 10으로 나눔
+        now := time.Now()
+        tenSecondsAgo := now.Add(-10 * time.Second)
+        var recentRequests int
+        var newRequests []time.Time
+        for _, t := range stats.apiRequests {
+            if t.After(tenSecondsAgo) {
+                recentRequests++
+                newRequests = append(newRequests, t)
+            }
+        }
+        stats.apiRequests = newRequests // 오래된 요청 기록은 삭제
+        rps := float64(recentRequests) / 10.0
 
-		// 나머지 통계 계산
-		var avgResponseTimeMs float64
-		if stats.totalRequests > 0 {
-			avgResponseTimeMs = float64(stats.totalResponseTime.Milliseconds()) / float64(stats.totalRequests)
-		}
-		var successRate float64
-		if stats.totalRequests > 0 {
-			successRate = (float64(stats.successCount) / float64(stats.totalRequests)) * 100
-		}
+        // 평균 응답시간 (최근 10초, 실제 API 요청 기준)
+        var rollingDurSum time.Duration
+        var rollingCount int64
+        var keptSamples []struct{ ts time.Time; dur time.Duration }
+        for _, s := range stats.apiResponseSamples {
+            if s.ts.After(tenSecondsAgo) {
+                rollingDurSum += s.dur
+                rollingCount++
+                keptSamples = append(keptSamples, s)
+            }
+        }
+        stats.apiResponseSamples = keptSamples
 
-		combinedStats := requestMetrics{
-			"load-balancer": requestMetrics{
-				"total_requests": stats.totalRequests, "success_rate": successRate,
-				"avg_response_time_ms": avgResponseTimeMs, "requests_per_second": rps, "status": "healthy",
-			},
-		}
-		stats.mu.Unlock()
+        var avgResponseTimeMs float64
+        if rollingCount > 0 {
+            avgResponseTimeMs = float64(rollingDurSum.Milliseconds()) / float64(rollingCount)
+        }
+
+        // lifetime 평균 및 성공률(실제 API 요청 기준)
+        var lifetimeAvgMs float64
+        if stats.apiTotalRequests > 0 {
+            lifetimeAvgMs = float64(stats.apiTotalResponseTime.Milliseconds()) / float64(stats.apiTotalRequests)
+        }
+        var successRate float64
+        if stats.apiTotalRequests > 0 {
+            successRate = (float64(stats.apiSuccessCount) / float64(stats.apiTotalRequests)) * 100
+        }
+
+        hasRealTraffic := recentRequests > 0
+
+        combinedStats := requestMetrics{
+            "load-balancer": requestMetrics{
+                "total_requests": stats.totalRequests, "success_rate": successRate,
+                "avg_response_time_ms": avgResponseTimeMs,
+                "avg_response_time_ms_lifetime": lifetimeAvgMs,
+                "requests_per_second": rps, "status": "healthy",
+                "has_real_traffic": hasRealTraffic,
+            },
+        }
+        stats.mu.Unlock()
 
 		// --- [수정] 모든 서비스의 통계를 가져오도록 확장 ---
 		var wg sync.WaitGroup
