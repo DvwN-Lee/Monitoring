@@ -16,13 +16,11 @@ import (
 
 // --- 통계 데이터 구조체 ---
 type StatsCollector struct {
-    mu                sync.RWMutex
-    requests          []time.Time // RPS 계산을 위해 요청 시간 기록
-    totalRequests     int64
-    successCount      int64
-    totalResponseTime time.Duration
-    // 최근 응답시간 샘플(롤링 평균 계산용)
-    responseSamples   []struct{ ts time.Time; dur time.Duration }
+	mu                sync.RWMutex
+	requests          []time.Time // RPS 계산을 위해 요청 시간 기록
+	totalRequests     int64
+	successCount      int64
+	totalResponseTime time.Duration
 }
 type requestMetrics map[string]interface{}
 
@@ -30,35 +28,21 @@ var stats = &StatsCollector{}
 
 // --- 통계 측정 미들웨어 ---
 func statsMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        startTime := time.Now()
-        resWrapper := &responseWriterInterceptor{ResponseWriter: w, statusCode: http.StatusOK}
-        next.ServeHTTP(resWrapper, r)
-        duration := time.Since(startTime)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startTime := time.Now()
+		resWrapper := &responseWriterInterceptor{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(resWrapper, r)
+		duration := time.Since(startTime)
 
-        stats.mu.Lock()
-        stats.totalRequests++
-        stats.requests = append(stats.requests, time.Now())
-        if resWrapper.statusCode >= 200 && resWrapper.statusCode < 400 {
-            stats.successCount++
-        }
-        stats.totalResponseTime += duration
-        // 응답시간 샘플 추가 (메모리 누수를 방지하기 위해 오래된 샘플은 주기적으로 정리)
-        now := time.Now()
-        stats.responseSamples = append(stats.responseSamples, struct{ ts time.Time; dur time.Duration }{ts: now, dur: duration})
-        // 60초 이전 샘플은 과감히 제거 (롤링 윈도우는 10초지만 버퍼를 조금 더 유지)
-        cutoff := now.Add(-60 * time.Second)
-        if len(stats.responseSamples) > 0 {
-            var kept []struct{ ts time.Time; dur time.Duration }
-            for _, s := range stats.responseSamples {
-                if s.ts.After(cutoff) {
-                    kept = append(kept, s)
-                }
-            }
-            stats.responseSamples = kept
-        }
-        stats.mu.Unlock()
-    })
+		stats.mu.Lock()
+		stats.totalRequests++
+		stats.requests = append(stats.requests, time.Now())
+		if resWrapper.statusCode >= 200 && resWrapper.statusCode < 400 {
+			stats.successCount++
+		}
+		stats.totalResponseTime += duration
+		stats.mu.Unlock()
+	})
 }
 
 // ... responseWriterInterceptor, getEnv, newProxy는 이전과 동일 ...
@@ -120,63 +104,39 @@ func main() {
 	uiProxy := newProxy(dashboardUIURL)
 
 	// --- [핵심] /stats 핸들러 최종 수정 ---
-    mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-        stats.mu.Lock()
-        // RPS 계산: 최근 10초간의 요청 수를 10으로 나눔
-        now := time.Now()
-        tenSecondsAgo := now.Add(-10 * time.Second)
-        var recentRequests int
-        var newRequests []time.Time
-        for _, t := range stats.requests {
-            if t.After(tenSecondsAgo) {
-                recentRequests++
-                newRequests = append(newRequests, t)
-            }
-        }
-        stats.requests = newRequests // 오래된 요청 기록은 삭제
-        rps := float64(recentRequests) / 10.0
+	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		stats.mu.Lock()
+		// RPS 계산: 최근 10초간의 요청 수를 10으로 나눔
+		now := time.Now()
+		tenSecondsAgo := now.Add(-10 * time.Second)
+		var recentRequests int
+		var newRequests []time.Time
+		for _, t := range stats.requests {
+			if t.After(tenSecondsAgo) {
+				recentRequests++
+				newRequests = append(newRequests, t)
+			}
+		}
+		stats.requests = newRequests // 오래된 요청 기록은 삭제
+		rps := float64(recentRequests) / 10.0
 
-        // 평균 응답시간 계산
-        // 1) 롤링 평균(최근 10초)
-        var rollingDurSum time.Duration
-        var rollingCount int64
-        var keptSamples []struct{ ts time.Time; dur time.Duration }
-        for _, s := range stats.responseSamples {
-            if s.ts.After(tenSecondsAgo) {
-                rollingDurSum += s.dur
-                rollingCount++
-                keptSamples = append(keptSamples, s)
-            }
-        }
-        // 샘플 슬라이스에서 오래된 항목 제거
-        stats.responseSamples = keptSamples
+		// 나머지 통계 계산
+		var avgResponseTimeMs float64
+		if stats.totalRequests > 0 {
+			avgResponseTimeMs = float64(stats.totalResponseTime.Milliseconds()) / float64(stats.totalRequests)
+		}
+		var successRate float64
+		if stats.totalRequests > 0 {
+			successRate = (float64(stats.successCount) / float64(stats.totalRequests)) * 100
+		}
 
-        var avgResponseTimeMs float64 // 롤링 평균(ms)
-        if rollingCount > 0 {
-            avgResponseTimeMs = float64(rollingDurSum.Milliseconds()) / float64(rollingCount)
-        }
-
-        // 2) 레퍼런스용: 전체(lifetime) 평균(ms)
-        var lifetimeAvgMs float64
-        if stats.totalRequests > 0 {
-            lifetimeAvgMs = float64(stats.totalResponseTime.Milliseconds()) / float64(stats.totalRequests)
-        }
-        var successRate float64
-        if stats.totalRequests > 0 {
-            successRate = (float64(stats.successCount) / float64(stats.totalRequests)) * 100
-        }
-
-        combinedStats := requestMetrics{
-            "load-balancer": requestMetrics{
-                "total_requests": stats.totalRequests, "success_rate": successRate,
-                // 대시보드는 avg_response_time_ms를 사용하므로 롤링 평균을 기본으로 제공합니다.
-                "avg_response_time_ms": avgResponseTimeMs,
-                // 참고용으로 lifetime 평균도 제공합니다.
-                "avg_response_time_ms_lifetime": lifetimeAvgMs,
-                "requests_per_second": rps, "status": "healthy",
-            },
-        }
-        stats.mu.Unlock()
+		combinedStats := requestMetrics{
+			"load-balancer": requestMetrics{
+				"total_requests": stats.totalRequests, "success_rate": successRate,
+				"avg_response_time_ms": avgResponseTimeMs, "requests_per_second": rps, "status": "healthy",
+			},
+		}
+		stats.mu.Unlock()
 
 		// --- [수정] 모든 서비스의 통계를 가져오도록 확장 ---
 		var wg sync.WaitGroup
