@@ -10,7 +10,6 @@
 ├── auth-service     # 사용자 인증 서비스 (FastAPI)
 ├── blog-service     # 블로그 예제 서비스 (FastAPI)
 ├── user-service     # 사용자 관리 서비스 (FastAPI + Redis)
-├── analytics-service# 로그 수집 및 통계 서비스 (FastAPI)
 ├── load-balancer    # Go 로드밸런서 및 통계 수집기
 ├── dashboard-ui     # Chart.js 기반 모니터링 대시보드
 ├── k8s-manifests    # Kustomize 기반 쿠버네티스 매니페스트
@@ -25,7 +24,45 @@
 - **User Service**: 사용자 등록·조회·인증 및 DB/캐시 상태를 반환하는 `/stats` 엔드포인트를 제공합니다.
 - **Auth Service**: 로그인과 JWT 토큰 검증 기능을 제공하며 `/stats` 로 간단한 상태 정보를 반환합니다.
 - **Blog Service**: 게시물 조회·등록 API와 샘플 SPA 페이지를 포함하는 예제 서비스입니다.
-- **Analytics Service**: 접근 로그를 수집하고 시스템 통계를 조회할 수 있는 REST API를 제공합니다.
+
+## 비기능 요구사항 (요약)
+
+- **성능 목표**: 안정적 처리량 100 RPS.
+- **확장성(기본 복제 수)**: 고가용성 확보를 위해 서비스 기본 2 Pod(상태 저장/인프라형은 1). 예) `api-gateway` 2, `load-balancer` 2, `auth-service` 2, `user-service` 2, `dashboard-ui` 2, `redis` 1, `blog-service` 1.
+- **안정성(Timeouts)**: 서비스 간 호출에 짧은 타임아웃을 적용하여 장애 전파를 차단.
+
+## 안정성 설계 (Timeouts)
+
+- **Load Balancer → 각 서비스 `/stats` 호출**:
+  - **HTTP 클라이언트 타임아웃**: `2s` 적용
+  - 코드: `load-balancer/main.go`의 `/stats` 핸들러 내 `http.Client{ Timeout: 2 * time.Second }`
+  - 개별 서비스 호출: 완전한 URL(`.../stats`)을 사용해 고루틴 병렬 수집
+- **API Gateway → 내부 서비스 프록시**:
+  - **Transport 타임아웃**: `ResponseHeaderTimeout=2s`, `IdleConnTimeout=30s`, `ExpectContinueTimeout=1s`
+  - **Server 타임아웃**: `ReadHeaderTimeout=2s`, `WriteTimeout=10s`, `IdleTimeout=60s`
+  - 코드: `api-gateway/main.go`의 `httputil.ReverseProxy.Transport` 및 `http.Server` 설정
+
+## 대시보드 하트비트 (WebSocket)
+
+- **엔드포인트**: `ws(s)://<LB>/api/ws-heartbeat` (gorilla/websocket)
+- **역할**: 연결이 유지되는 동안 주기적 ping/pong 및 메시지로 “실제 활동”을 LB가 감지하여 IDLE 상태를 방지
+- **대시보드 토글**: `index.html`의 `#toggle-ws-heartbeat-btn` 버튼으로 ON/OFF 제어
+  - ON: 클라이언트가 5초마다 `"hb"` 메시지를 전송, 끊기면 2초 후 자동 재연결
+  - OFF: 연결 종료 및 전송 중단
+- **HTTP 하트비트**: 기본 비활성화. 필요 시 `script.js`의 `config.heartbeat`로 GET `/api/health`를 사용할 수 있음
+
+## 트래픽 집계 기준 (IDLE 관련)
+
+- **집계 기준**: LB 미들웨어는 `/api/*` 경로의 요청만 “실제 API 트래픽”으로 집계하며, `HEAD` 요청과 `X-Heartbeat: true`는 제외
+- **IDLE 판단**: 최근 10초간 실제 API 트래픽(또는 WS 활동)이 없으면 `has_real_traffic=false`로 보고, 대시보드가 IDLE을 표기
+- **해결 방법**: 실제 API 호출 또는 WS 하트비트(권장)를 활성화하면 IDLE이 해제되고 지표가 업데이트됨
+
+## 부하 테스트 가이드 (예시)
+
+- **목표**: 100 RPS 유지 시 에러율과 지연이 목표 수준 이내인지 확인
+- **예시 도구**: `vegeta`, `hey`
+  - hey 예시: `hey -z 30s -q 100 http://<LB_HOST>:7100/api/health`
+  - vegeta 예시: `echo "GET http://<LB_HOST>:7100/api/health" | vegeta attack -duration=30s -rate=100 | vegeta report`
 - **Dashboard UI**: Chart.js와 바닐라 JS로 구현된 대시보드로, 각 서비스의 `/stats` 를 주기적으로 호출하여 상태와 지표를 시각화합니다.
 
 ## 로컬 실행
