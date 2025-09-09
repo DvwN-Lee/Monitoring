@@ -72,13 +72,44 @@
 - **IDLE 판단**: 최근 10초간 실제 API 트래픽(또는 WS 활동)이 없으면 `has_real_traffic=false`로 보고, 대시보드가 IDLE을 표기
 - **해결 방법**: 실제 API 호출 또는 WS 하트비트(권장)를 활성화하면 IDLE이 해제되고 지표가 업데이트됨
 
-## 부하 테스트 가이드 (예시)
+## 부하 테스트
 
-- **목표**: 100 RPS 유지 시 에러율과 지연이 목표 수준 이내인지 확인
-- **예시 도구**: `vegeta`, `hey`
-  - hey 예시: `hey -z 30s -q 100 http://<LB_HOST>:7100/api/health`
-  - vegeta 예시: `echo "GET http://<LB_HOST>:7100/api/health" | vegeta attack -duration=30s -rate=100 | vegeta report`
-- **Dashboard UI**: Chart.js와 바닐라 JS로 구현된 대시보드로, 각 서비스의 `/stats` 를 주기적으로 호출하여 상태와 지표를 시각화합니다.
+- **스크립트**: `blog_load_test.sh` (LB → API Gateway → Blog Service `/api/posts` 경로를 타격)
+- **전제 조건**:
+  - 필수: `bash`, `curl`
+  - 선택: `vegeta` 또는 `hey` 설치 시 자동 사용(없으면 curl 병렬 폴백)
+  - `minikube` 사용 시 URL 자동 추론, 그 외 환경은 `--url` 직접 지정
+
+- **기본 사용**:
+  - 자동 모드: `./blog_load_test.sh --duration 30s --rate 100`
+  - hey 강제: `./blog_load_test.sh --mode hey --rate 100 --duration 30s --concurrency 20`
+  - vegeta 강제: `./blog_load_test.sh --mode vegeta --rate 120 --duration 45s`
+  - 수동 URL: `./blog_load_test.sh --url http://127.0.0.1:30700 --rate 80 --duration 60s`
+
+- **옵션 요약**:
+  - `--url`: LB 기본 URL(예: `http://127.0.0.1:30700`), 미지정 시 minikube로 탐색
+  - `--namespace`, `--service`: minikube 탐색에 사용(기본: `titanium-local`, `local-load-balancer-service`)
+  - `--path`: 타겟 경로(기본: `/api/posts`)
+  - `--rate`: 초당 요청 수(RPS)
+  - `--duration`: 테스트 시간(예: `30s`, `2m`)
+  - `--concurrency`: 동시 접속(hey/폴백에서 사용)
+  - `--mode`: `auto|vegeta|hey|curl`
+  - `--no-warmup`: 워밍업 스킵
+
+- **체크 포인트**
+  - `GET /stats`에서 다음 항목을 비교(스크립트가 테스트 전/후 출력)
+    - `load-balancer.requests_per_second`: 부하 중 상승해야 함(목표 100 RPS 수준)
+    - `load-balancer.avg_response_time_ms`: 최근 10초 롤링 평균의 변동
+    - `load-balancer.avg_response_time_ms_lifetime`: 누적 평균의 점진적 변화
+    - `load-balancer.success_rate`: 에러율이 낮게 유지되는지(≈100%)
+    - `load-balancer.has_real_traffic`: true로 전환되는지
+  - 대시보드에서 IDLE 해제, KPI 및 RPS 차트의 변화
+
+- **주의 사항**
+  - WS 하트비트는 RPS/응답시간 집계에 포함되지 않습니다. 실제 API 호출(`/api/*`)만 지표에 반영
+  - kind 등 minikube 미사용 환경에서는 `--url`을 지정하거나 `kubectl port-forward`로 LB에 접근할 것
+  - 404/422가 보이면 경로나 바디 스키마를 재확인할 것(부하는 `/api/posts` GET를 사용).
+- **Dashboard UI**: Chart.js와 바닐라 JS로 구현된 대시보드로, 각 서비스의 `/stats` 를 주기적으로 호출하여 상태와 지표를 시각화
 
 ## 로컬 실행
 
