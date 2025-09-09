@@ -3,35 +3,41 @@
 package main
 
 import (
-	"encoding/json"
-	"io"
-	"log"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
-	"os"
-	"strings"
-	"sync"
-	"time"
+    "encoding/json"
+    "io"
+    "log"
+    "net/http"
+    "net/http/httputil"
+    "net/url"
+    "os"
+    "strings"
+    "sync"
+    "time"
+    
+    "github.com/gorilla/websocket"
 )
 
 // --- 통계 데이터 구조체 ---
 type StatsCollector struct {
-	mu                sync.RWMutex
-	requests          []time.Time // RPS 계산을 위해 요청 시간 기록
-	totalRequests     int64
-	successCount      int64
-	totalResponseTime time.Duration
+    mu                sync.RWMutex
+    requests          []time.Time // RPS 계산을 위해 요청 시간 기록
+    totalRequests     int64
+    successCount      int64
+    totalResponseTime time.Duration
 
 	// 최근 응답시간 샘플(전체)
 	responseSamples []struct{ ts time.Time; dur time.Duration }
 
 	// 실제 API 요청만 분리 집계 (대시보드 지표 반영용)
-	apiRequests          []time.Time
-	apiTotalRequests     int64
-	apiSuccessCount      int64
-	apiTotalResponseTime time.Duration
-	apiResponseSamples   []struct{ ts time.Time; dur time.Duration }
+    apiRequests          []time.Time
+    apiTotalRequests     int64
+    apiSuccessCount      int64
+    apiTotalResponseTime time.Duration
+    apiResponseSamples   []struct{ ts time.Time; dur time.Duration }
+
+    // WebSocket 하트비트 집계를 위한 최근 활동 타임스탬프
+    wsActivities []time.Time
+    wsActiveCount int
 }
 type requestMetrics map[string]interface{}
 
@@ -110,7 +116,8 @@ func newProxy(target *url.URL) *httputil.ReverseProxy {
 
 // --- 개별 서비스 통계 수집 함수 ---
 func fetchServiceStats(client *http.Client, serviceURL string) requestMetrics {
-	resp, err := client.Get(serviceURL + "/stats")
+    // serviceURL은 완전한 /stats URL이어야 함
+    resp, err := client.Get(serviceURL)
 	if err != nil {
 		log.Printf("Error fetching stats from %s: %v", serviceURL, err)
 		return requestMetrics{"service_status": "offline"}
@@ -146,9 +153,69 @@ func main() {
 
 	port := getEnv("LB_PORT", "7100")
 	mux := http.NewServeMux()
-	apiProxy := newProxy(apiGatewayURL)
-	uiProxy := newProxy(dashboardUIURL)
-	blogProxy := newProxy(blogProxyURL)
+    apiProxy := newProxy(apiGatewayURL)
+    uiProxy := newProxy(dashboardUIURL)
+    blogProxy := newProxy(blogProxyURL)
+
+    // --- WebSocket 하트비트 엔드포인트 ---
+    upgrader := websocket.Upgrader{ CheckOrigin: func(r *http.Request) bool { return true } }
+    mux.HandleFunc("/api/ws-heartbeat", func(w http.ResponseWriter, r *http.Request) {
+        // 업그레이드
+        conn, err := upgrader.Upgrade(w, r, nil)
+        if err != nil {
+            log.Printf("WS upgrade error: %v", err)
+            return
+        }
+        defer conn.Close()
+
+        // 접속 증가 기록
+        stats.mu.Lock()
+        stats.wsActiveCount++
+        stats.wsActivities = append(stats.wsActivities, time.Now())
+        stats.mu.Unlock()
+        defer func() {
+            stats.mu.Lock()
+            stats.wsActiveCount--
+            stats.mu.Unlock()
+        }()
+
+        // Pong 수신 시 최근 활동 기록
+        conn.SetPongHandler(func(appData string) error {
+            stats.mu.Lock()
+            stats.wsActivities = append(stats.wsActivities, time.Now())
+            stats.mu.Unlock()
+            return nil
+        })
+
+        // 주기적으로 ping 전송하여 연결 유지 및 활동 기록 유도
+        pingTicker := time.NewTicker(5 * time.Second)
+        defer pingTicker.Stop()
+
+        done := make(chan struct{})
+        go func() {
+            for {
+                select {
+                case <-pingTicker.C:
+                    // Ping 전송. 타임아웃을 짧게 설정
+                    _ = conn.WriteControl(websocket.PingMessage, []byte("hb"), time.Now().Add(2*time.Second))
+                case <-done:
+                    return
+                }
+            }
+        }()
+
+        // 메시지 루프: 클라이언트 메시지 수신 시 활동 기록
+        for {
+            _, _, err := conn.ReadMessage()
+            if err != nil {
+                close(done)
+                break
+            }
+            stats.mu.Lock()
+            stats.wsActivities = append(stats.wsActivities, time.Now())
+            stats.mu.Unlock()
+        }
+    })
 
 	// --- [핵심] /stats 핸들러 최종 수정 ---
     mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
@@ -165,6 +232,18 @@ func main() {
             }
         }
         stats.apiRequests = newRequests // 오래된 요청 기록은 삭제
+
+        // 최근 WS 활동도 같이 집계 (합성 하트비트이지만 실제 연결 상태를 반영)
+        var wsRecent int
+        var keptWS []time.Time
+        for _, t := range stats.wsActivities {
+            if t.After(tenSecondsAgo) {
+                wsRecent++
+                keptWS = append(keptWS, t)
+            }
+        }
+        stats.wsActivities = keptWS
+
         rps := float64(recentRequests) / 10.0
 
         // 평균 응답시간 (최근 10초, 실제 API 요청 기준)
@@ -195,7 +274,7 @@ func main() {
             successRate = (float64(stats.apiSuccessCount) / float64(stats.apiTotalRequests)) * 100
         }
 
-        hasRealTraffic := recentRequests > 0
+        hasRealTraffic := recentRequests > 0 || wsRecent > 0
 
         combinedStats := requestMetrics{
             "load-balancer": requestMetrics{
@@ -210,11 +289,13 @@ func main() {
 
 		// --- [수정] 모든 서비스의 통계를 가져오도록 확장 ---
 		var wg sync.WaitGroup
-		client := &http.Client{Timeout: 2 * time.Second}
-		serviceUrls := map[string]string{
-			"api-gateway": apiGatewayURL.String(), "user_service": userServiceURL,
-			"auth": authServiceURL, "blog_service": blogServiceURL,
-		}
+        client := &http.Client{Timeout: 2 * time.Second}
+        serviceUrls := map[string]string{
+            "api-gateway": apiGatewayURL.String() + "/stats",
+            "user_service": userServiceURL + "/stats",
+            "auth": authServiceURL + "/stats",
+            "blog_service": blogServiceURL + "/stats",
+        }
 		resultsChan := make(chan struct {
 			key  string
 			data requestMetrics
@@ -234,20 +315,20 @@ func main() {
 		wg.Wait()
 		close(resultsChan)
 
-		for result := range resultsChan {
-			// user_service의 DB, Cache 정보를 최상위로 올림
-			if stats, ok := result.data["user_service"].(map[string]interface{}); ok {
-				if db, dbOk := stats["database"]; dbOk {
-					combinedStats["database"] = db
-				}
-				if cache, cacheOk := stats["cache"]; cacheOk {
-					combinedStats["cache"] = cache
-				}
-				combinedStats["user_service"] = stats
-			} else {
-				combinedStats[result.key] = result.data
-			}
-		}
+        for result := range resultsChan {
+            // fetchServiceStats에서 이미 언랩된 형태를 반환하므로 key로 분기
+            if result.key == "user_service" {
+                if db, ok := result.data["database"]; ok {
+                    combinedStats["database"] = db
+                }
+                if cache, ok := result.data["cache"]; ok {
+                    combinedStats["cache"] = cache
+                }
+                combinedStats["user_service"] = result.data
+                continue
+            }
+            combinedStats[result.key] = result.data
+        }
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(combinedStats)
