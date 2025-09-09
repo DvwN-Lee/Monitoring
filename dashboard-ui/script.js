@@ -302,7 +302,8 @@ const statusModule = {
         }
 
         this.elements.currentRps.textContent = (lbData?.requests_per_second || 0).toFixed(1);
-        this.elements.avgResponseTime.textContent = `${(lbData?.avg_response_time_ms || 0).toFixed(1)}ms`;
+        const avgLifetime = (lbData?.avg_response_time_ms_lifetime ?? lbData?.avg_response_time_ms ?? 0);
+        this.elements.avgResponseTime.textContent = `${avgLifetime.toFixed(1)}ms`;
 
         const dbIsHealthy = stats?.database?.status === 'healthy';
         this.elements.dbStatus.textContent = dbIsHealthy ? 'ONLINE' : 'OFFLINE';
