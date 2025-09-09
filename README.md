@@ -42,14 +42,29 @@
   - **Server 타임아웃**: `ReadHeaderTimeout=2s`, `WriteTimeout=10s`, `IdleTimeout=60s`
   - 코드: `api-gateway/main.go`의 `httputil.ReverseProxy.Transport` 및 `http.Server` 설정
 
+## 프록시/집계 경로 구성 및 100 RPS 최적화
+
+- **경로 구성**: `Load Balancer`는 UI(`/`), API(`/api/*`)를 프록시하고, `/stats`에서 각 서비스의 `/stats`를 병렬 수집 후 통합 응답을 제공합니다.
+- **집계 최적화**: 최근 10초 윈도우로 RPS·평균 응답시간을 계산해 스파이크에도 민감하게 반응하면서 노이즈를 억제합니다.
+- **오버헤드 최소화**: 통계 미들웨어가 `/api/*` 실트래픽만 집계하고, 하트비트/HEAD는 제외해 측정 비용을 줄입니다.
+- **백프레셔**: 서비스 호출에 `2s` 타임아웃을 두어 느린 서비스가 전체 집계를 지연시키지 않도록 격리합니다.
+- **목표 부하(100 RPS)**: 위 구성으로 평균 응답시간과 실패율을 안정화하고, 네트워크/프록시 타임아웃으로 장애 전파를 차단합니다.
+
 ## 대시보드 하트비트 (WebSocket)
 
 - **엔드포인트**: `ws(s)://<LB>/api/ws-heartbeat` (gorilla/websocket)
+- **이유**: 실제 사용자 트래픽이 없을 때도 운영 중인 상태를 반영하기 위해 WS 연결을 유지하며 활동을 신호로 보냅니다. HTTP 하트비트는 측정 제외 정책(HEAD/X-Heartbeat)과 충돌할 수 있어 WS를 채택했습니다.
 - **역할**: 연결이 유지되는 동안 주기적 ping/pong 및 메시지로 “실제 활동”을 LB가 감지하여 IDLE 상태를 방지
 - **대시보드 토글**: `index.html`의 `#toggle-ws-heartbeat-btn` 버튼으로 ON/OFF 제어
   - ON: 클라이언트가 5초마다 `"hb"` 메시지를 전송, 끊기면 2초 후 자동 재연결
   - OFF: 연결 종료 및 전송 중단
 - **HTTP 하트비트**: 기본 비활성화. 필요 시 `script.js`의 `config.heartbeat`로 GET `/api/health`를 사용할 수 있음
+
+## 대시보드 핵심 KPI
+
+- **시스템 현황**: 전체 상태, 활성 서비스 수, 현재 RPS, 평균 응답시간에 집중합니다.
+- **데이터 저장소 상태**: `stats.database.status`, `stats.cache.status`를 ONLINE/OFFLINE으로 단순 표기합니다.
+- **알람 단순화**: 서비스 Offline 감지 위주로 노이즈를 줄였습니다.
 
 ## 트래픽 집계 기준 (IDLE 관련)
 
@@ -140,3 +155,11 @@ skaffold delete
 - Docker / Docker Compose
 - kubectl, Skaffold, Kustomize
 - Go 1.22+, Python 3.10+
+-
+## 데이터 백업 CronJob
+
+- **목적**: `user-service`의 SQLite(`users.db`)를 주기적으로 백업하여 디스크 장애·실수로 인한 손상에 대비합니다.
+- **스케줄**: 매일 자정(UTC) 실행. 파일명을 타임스탬프와 함께 `/backup/users.db.YYYY-mm-dd-HHMMSS`로 보관합니다.
+- **구성**: CronJob 컨테이너에서 PVC를 `/data`(원본, RO)와 `/backup`(백업)으로 마운트하여 단순 복사합니다.
+- **참고 파일**: `k8s-manifests/base/user-service-backup-cronjob.yaml`
+- **운영 권장**: 데모 환경은 동일 PVC를 재사용하지만, 실제 운영은 별도 PV/PVC 또는 외부 스토리지(NFS/S3 등) 사용을 권장합니다.
