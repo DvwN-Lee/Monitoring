@@ -37,7 +37,6 @@
     </style>
 </head>
 <body>
-    <!-- 대시보드의 모든 HTML 구조는 그대로 유지됩니다. -->
     <div class="dashboard-container">
         <div class="header">
             <h1>🚀 실시간 모니터링 대시보드 V2</h1>
@@ -48,32 +47,29 @@
         </div>
 
         <div class="widget">
-            <h3>🎯 시스템 전체 상태</h3>
+            <h3>🎯 시스템 현황</h3>
             <div class="controls">
                 <button id="toggle-monitoring-btn" class="control-btn active">모니터링 ON</button>
                 <button id="refresh-btn" class="control-btn">새로고침</button>
-                <button id="reset-stats-btn" class="control-btn">통계 초기화</button>
             </div>
             <div class="metric"><span>전체 상태</span><span class="metric-value metric-good" id="overall-status">INITIALIZING</span></div>
             <div class="metric"><span>활성 서비스</span><span class="metric-value" id="active-services">0/0</span></div>
-            <div class="metric"><span>총 요청 수</span><span class="metric-value" id="total-requests">0</span></div>
-            <div class="metric"><span>성공률</span><span class="metric-value metric-good" id="success-rate">100%</span></div>
+            <div class="metric"><span>현재 RPS</span><span class="metric-value" id="current-rps">0</span></div>
+            <div class="metric"><span>평균 응답시간</span><span class="metric-value" id="avg-response-time">0ms</span></div>
         </div>
 
-        <div class="widget"><h3>⏱️ 응답 시간 추이</h3><div class="chart-container"><canvas id="responseTimeChart"></canvas></div></div>
-        <div class="widget"><h3>📈 처리량 (RPS)</h3><div class="chart-container"><canvas id="throughputChart"></canvas></div></div>
-
         <div class="widget">
-            <h3>🖥️ 서버 상태</h3>
+            <h3>🖥️ 서비스별 상태</h3>
             <ul class="server-list" id="server-list"></ul>
         </div>
 
         <div class="widget">
-            <h3>🌐 네트워크 통계</h3>
-            <div class="metric"><span>현재 RPS</span><span class="metric-value" id="current-rps">0</span></div>
-            <div class="metric"><span>평균 응답시간</span><span class="metric-value" id="avg-response-time">0ms</span></div>
-            <div class="metric"><span>에러율</span><span class="metric-value" id="error-rate">0%</span></div>
+            <h3>💾 데이터 저장소 상태</h3>
+            <div class="metric"><span>데이터베이스</span><span class="metric-value metric-good" id="db-status">N/A</span></div>
+            <div class="metric"><span>캐시</span><span class="metric-value" id="cache-status">N/A</span></div>
         </div>
+
+        <div class="widget" style="grid-column: 1 / -1;"><h3>📈 처리량 (RPS) 및 응답 시간 추이</h3><div class="chart-container"><canvas id="throughputChart"></canvas></div></div>
 
         <div class="widget">
             <h3>🚨 알람 및 이벤트</h3>
@@ -81,19 +77,11 @@
         </div>
 
         <div class="widget">
-            <h3>💾 데이터 저장소 상태</h3>
-            <div class="metric"><span>데이터베이스</span><span class="metric-value metric-good" id="db-status">N/A</span></div>
-            <div class="metric"><span>캐시 히트율</span><span class="metric-value" id="cache-hit-rate">0%</span></div>
-            <div class="metric"><span>활성 세션</span><span class="metric-value" id="active-sessions">0</span></div>
-        </div>
-
-        <div class="widget" style="grid-column: 1 / -1;">
-            <h3>📝 실시간 로그</h3>
+            <h3>📝 Load Balancer 로그</h3>
             <div class="logs-container" id="logs-container"></div>
         </div>
     </div>
 
-    <!-- [핵심 변경 사항!] 분리된 JavaScript 파일을 불러옵니다. -->
     <script src="script.js" type="module"></script>
 </body>
 </html>

@@ -3,13 +3,14 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
-	"os"
-	"strings"
+    "encoding/json"
+    "log"
+    "net/http"
+    "net/http/httputil"
+    "net/url"
+    "os"
+    "strings"
+    "time"
 )
 
 // ... (getEnv, newProxy 함수는 그대로 유지) ...
@@ -31,10 +32,18 @@ func main() {
     // 분석 서비스는 현재 통계 집계에 직접 사용되지 않으므로 주석 처리 또는 삭제 가능
     // analyticsServiceURL, _ := url.Parse(getEnv("ANALYTICS_SERVICE_URL", "http://analytics-service:8004"))
 
-    // 리버스 프록시 생성
+    // 리버스 프록시 + 타임아웃이 설정된 트랜스포트
+    transport := &http.Transport{
+        ResponseHeaderTimeout: 2 * time.Second,
+        IdleConnTimeout:       30 * time.Second,
+        ExpectContinueTimeout: 1 * time.Second,
+    }
     userProxy := httputil.NewSingleHostReverseProxy(userServiceURL)
+    userProxy.Transport = transport
     authProxy := httputil.NewSingleHostReverseProxy(authServiceURL)
+    authProxy.Transport = transport
     blogProxy := httputil.NewSingleHostReverseProxy(blogServiceURL)
+    blogProxy.Transport = transport
 
     mux := http.NewServeMux()
 
@@ -45,9 +54,13 @@ func main() {
 		// /api/ 접두사 제거
 		trimmedPath := strings.TrimPrefix(path, "/api")
 
-		if strings.HasPrefix(trimmedPath, "/login") || strings.HasPrefix(trimmedPath, "/register") {
-			r.URL.Path = trimmedPath // 경로를 재작성하여 authProxy로 전달
+		if strings.HasPrefix(trimmedPath, "/login") {
+			r.URL.Path = trimmedPath
 			authProxy.ServeHTTP(w, r)
+		} else if strings.HasPrefix(trimmedPath, "/register") {
+			// 회원가입은 User Service로 프록시하고, /users로 경로 재작성
+			r.URL.Path = "/users"
+			userProxy.ServeHTTP(w, r)
 		} else if strings.HasPrefix(trimmedPath, "/users") {
 			r.URL.Path = trimmedPath
 			userProxy.ServeHTTP(w, r)
@@ -76,7 +89,14 @@ func main() {
 	})
 
     log.Printf("Go API Gateway started on :%s", port)
-    if err := http.ListenAndServe(":"+port, mux); err != nil {
+    srv := &http.Server{
+        Addr:              ":" + port,
+        Handler:           mux,
+        ReadHeaderTimeout: 2 * time.Second,
+        WriteTimeout:      10 * time.Second,
+        IdleTimeout:       60 * time.Second,
+    }
+    if err := srv.ListenAndServe(); err != nil {
         log.Fatal(err)
     }
 }
