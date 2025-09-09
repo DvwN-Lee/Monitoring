@@ -28,8 +28,6 @@ replicas:
   count: 1
 - name: blog-service-deployment
   count: 1
-- name: analytics-service-deployment
-  count: 1
 
 # 4. 로컬 환경 변수 추가
 configMapGenerator:
@@ -44,7 +42,7 @@ configMapGenerator:
   - USER_SERVICE_URL=http://local-user-service:8001
   - AUTH_SERVICE_URL=http://local-auth-service:8002
   - BLOG_SERVICE_URL=http://local-blog-service:8005
-  - ANALYTICS_SERVICE_URL=http://local-analytics-service:8004
+  # ANALYTICS_SERVICE_URL 항목 제거 (analytics-service 삭제)
   - DASHBOARD_UI_URL=http://local-dashboard-ui-service:80
   - LOAD_BALANCER_URL=http://local-load-balancer-service:7100
   - REDIS_HOST=local-redis-service

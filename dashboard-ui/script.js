@@ -10,13 +10,100 @@ const config = {
     // 하트비트(옵션): 정적 루트로 HEAD 요청을 주기적으로 보내
     // LB의 통계 미들웨어가 RPS/응답시간을 지속 갱신하도록 유도
     heartbeat: {
-        enabled: true,
-        path: '/',       // LB가 "/" 경로를 UI로 프록시하므로 미들웨어에 포착됨
-        method: 'HEAD',  // 콘텐츠 전송 없이 빠른 왕복
-        interval: 2000,  // 기본 refreshInterval과 동일 주기
+        enabled: false,
+        // 실제 API 트래픽으로 집계되도록 API 게이트웨리 헬스 체크 경로로 전송
+        // (LB는 /api/*만 실제 트래픽으로 계산하고 HEAD/X-Heartbeat 는 제외함)
+        path: '/api/health',
+        method: 'GET',
+        interval: 2000,
+        // 하트비트 헤더를 "true"로 보내면 LB가 하트비트로 분류하여 제외하므로 false로 둠
         headerName: 'X-Heartbeat',
-        headerValue: 'true',
+        headerValue: 'false',
     },
+};
+
+// ==================================
+// WS 하트비트 (gorilla/websocket 서버와 연결)
+// ==================================
+const wsHeartbeat = {
+    socket: null,
+    enabled: false,
+    hbTimer: null,
+    reconnectTimer: null,
+    heartbeatIntervalMs: 5000,
+    reconnectDelayMs: 2000,
+    _connecting: false,
+    _send(data) {
+        try {
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(data);
+            }
+        } catch (e) {
+            eventBus.publish('log', { message: `WS send error: ${e.message}`, type: 'error' });
+        }
+    },
+    _startHeartbeatLoop() {
+        this._stopHeartbeatLoop();
+        this.hbTimer = setInterval(() => this._send('hb'), this.heartbeatIntervalMs);
+    },
+    _stopHeartbeatLoop() {
+        if (this.hbTimer) { clearInterval(this.hbTimer); this.hbTimer = null; }
+    },
+    _scheduleReconnect() {
+        if (!this.enabled) return;
+        if (this.reconnectTimer) return;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            this.connect();
+        }, this.reconnectDelayMs);
+    },
+    connect() {
+        if (!this.enabled || this._connecting) return;
+        this._connecting = true;
+        try {
+            const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+            const url = `${proto}://${location.host}/api/ws-heartbeat`;
+            this.socket = new WebSocket(url);
+            this.socket.onopen = () => {
+                this._connecting = false;
+                eventBus.publish('log', { message: 'WS heartbeat connected.' });
+                this._startHeartbeatLoop();
+            };
+            this.socket.onclose = () => {
+                this._connecting = false;
+                eventBus.publish('log', { message: 'WS heartbeat disconnected.' });
+                this._stopHeartbeatLoop();
+                this._scheduleReconnect();
+            };
+            this.socket.onerror = () => {
+                eventBus.publish('log', { message: 'WS heartbeat error.' , type: 'error'});
+            };
+            this.socket.onmessage = () => {
+                // 서버에서 메시지를 받으면 최근 활동으로 취급되도록 주기 메시지를 계속 보냄
+            };
+        } catch (e) {
+            this._connecting = false;
+            eventBus.publish('log', { message: `WS heartbeat init failed: ${e.message}`, type: 'error' });
+            this._scheduleReconnect();
+        }
+    },
+    disconnect() {
+        if (this.socket) {
+            try { this.socket.close(); } catch (_) {}
+            this.socket = null;
+        }
+        this._stopHeartbeatLoop();
+        if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    },
+    start() {
+        if (this.enabled) return;
+        this.enabled = true;
+        this.connect();
+    },
+    stop() {
+        this.enabled = false;
+        this.disconnect();
+    }
 };
 
 // ==================================
@@ -104,16 +191,16 @@ const chartModule = {
             responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
             scales: { x: { ticks: { color: '#fff' } }, y: { ticks: { color: '#fff' }, beginAtZero: true } }
         };
-        this.charts.responseTime = new Chart(document.getElementById('responseTimeChart')?.getContext('2d'), {
-            type: 'line',
-            data: { labels: [], datasets: [{ data: [], borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.1)', tension: 0.4, fill: true }] },
-            options: commonOptions
-        });
-        this.charts.throughput = new Chart(document.getElementById('throughputChart')?.getContext('2d'), {
+        const throughputCanvas = document.getElementById('throughputChart');
+        if (throughputCanvas) {
+            this.charts.throughput = new Chart(throughputCanvas.getContext('2d'), {
             type: 'bar',
             data: { labels: [], datasets: [{ data: [], backgroundColor: '#3b82f6' }] },
             options: commonOptions
-        });
+            });
+        } else {
+            this.charts.throughput = null;
+        }
         eventBus.subscribe('statsUpdated', ({ stats }) => this.update(stats));
         eventBus.subscribe('reset', () => this.reset());
     },
@@ -134,7 +221,6 @@ const chartModule = {
             }
             chart.update('none');
         };
-        updateChart(this.charts.responseTime, stats?.['load-balancer']?.avg_response_time_ms || 0);
         updateChart(this.charts.throughput, stats?.['load-balancer']?.requests_per_second || 0);
     },
     reset() {
@@ -160,22 +246,13 @@ const statusModule = {
     },
     init() {
         this.elements = {
-            // 전체 상태
             overallStatus: document.getElementById('overall-status'),
             activeServices: document.getElementById('active-services'),
-            totalRequests: document.getElementById('total-requests'),
-            successRate: document.getElementById('success-rate'),
             serverList: document.getElementById('server-list'),
-
-            // [수정] 네트워크 통계 요소들을 모두 가져옵니다.
             currentRps: document.getElementById('current-rps'),
             avgResponseTime: document.getElementById('avg-response-time'),
-            errorRate: document.getElementById('error-rate'),
-
-            // [수정] 데이터 저장소 상태 요소들을 모두 가져옵니다.
             dbStatus: document.getElementById('db-status'),
-            cacheHitRate: document.getElementById('cache-hit-rate'),
-            activeSessions: document.getElementById('active-sessions'),
+            cacheStatus: document.getElementById('cache-status'),
         };
         eventBus.subscribe('statsUpdated', ({ stats, isFetchSuccess }) => this.update(stats, isFetchSuccess));
         eventBus.subscribe('fetchError', ({ isFetchSuccess }) => this.update(null, isFetchSuccess));
@@ -185,15 +262,11 @@ const statusModule = {
     setInitialState() {
         this.elements.overallStatus.textContent = 'CONNECTING...';
         this.elements.overallStatus.className = 'metric-value metric-warning';
-        this.elements.totalRequests.textContent = '0';
-        this.elements.successRate.textContent = '0.0%';
         this.elements.activeServices.textContent = '0/0';
         this.elements.currentRps.textContent = '0.0';
         this.elements.avgResponseTime.textContent = '0ms';
-        this.elements.errorRate.textContent = '0.0%';
         this.elements.dbStatus.textContent = 'N/A';
-        this.elements.cacheHitRate.textContent = '0.0%';
-        this.elements.activeSessions.textContent = '0';
+        if (this.elements.cacheStatus) this.elements.cacheStatus.textContent = 'N/A';
         this.elements.serverList.innerHTML = '';
     },
     update(stats, isFetchSuccess) {
@@ -205,25 +278,16 @@ const statusModule = {
         }
 
         const lbData = stats['load-balancer'];
+        // IDLE 상태 표시는 유지하되, 핵심 KPI만 표기
         const hasReal = lbData?.has_real_traffic === true;
         if (!hasReal) {
-            // Idle 상태 표기 및 지표 값은 0 또는 유지
             this.elements.overallStatus.textContent = 'IDLE';
             this.elements.overallStatus.className = 'metric-value metric-warning';
-            this.elements.currentRps.textContent = '0.0';
-            this.elements.avgResponseTime.textContent = '0ms';
-            this.elements.errorRate.textContent = '0.0%';
-            // 서버 리스트는 LB만 Healthy로 표기 유지
-            this.updateServerList(stats, true);
-            return;
         }
         const serviceStates = this.updateServerList(stats, true);
         const healthyCount = serviceStates.filter(s => s.isHealthy).length;
         const totalCount = serviceStates.length;
 
-        // 전체 상태 업데이트
-        this.elements.totalRequests.textContent = (lbData?.total_requests || 0).toLocaleString();
-        this.elements.successRate.textContent = `${(lbData?.success_rate || 0).toFixed(1)}%`;
         this.elements.activeServices.textContent = `${healthyCount}/${totalCount}`;
 
         if (healthyCount < totalCount) {
@@ -239,13 +303,15 @@ const statusModule = {
 
         this.elements.currentRps.textContent = (lbData?.requests_per_second || 0).toFixed(1);
         this.elements.avgResponseTime.textContent = `${(lbData?.avg_response_time_ms || 0).toFixed(1)}ms`;
-        this.elements.errorRate.textContent = `${(100 - (lbData?.success_rate || 100)).toFixed(1)}%`;
 
         const dbIsHealthy = stats?.database?.status === 'healthy';
         this.elements.dbStatus.textContent = dbIsHealthy ? 'ONLINE' : 'OFFLINE';
         this.elements.dbStatus.className = `metric-value ${dbIsHealthy ? 'metric-good' : 'metric-danger'}`;
-        this.elements.cacheHitRate.textContent = `${(stats?.cache?.hit_ratio || 0).toFixed(1)}%`;
-        this.elements.activeSessions.textContent = stats?.auth?.active_session_count || 0;
+        if (this.elements.cacheStatus) {
+            const cacheIsHealthy = stats?.cache?.status === 'healthy';
+            this.elements.cacheStatus.textContent = cacheIsHealthy ? 'ONLINE' : 'OFFLINE';
+            this.elements.cacheStatus.className = `metric-value ${cacheIsHealthy ? 'metric-good' : 'metric-danger'}`;
+        }
     },
     updateServerList(stats, isLbHealthy) {
         // ... (이전과 동일한 리팩터링된 함수) ...
@@ -285,17 +351,12 @@ const alertModule = {
         eventBus.subscribe('statsUpdated', ({ stats }) => this.checkAlerts(stats));
     },
     checkAlerts(stats) {
-        const lbData = stats?.['load-balancer'];
-        if (!lbData) return;
-
-        if (lbData.success_rate < 95) this.addAlert('warning', `Success rate is low: ${lbData.success_rate.toFixed(1)}%`);
-        if (lbData.avg_response_time_ms > 500) this.addAlert('warning', `High response time: ${lbData.avg_response_time_ms.toFixed(1)}ms`);
-
-        // 전체 서비스 상태를 확인하여 다운된 서비스 알림
+        if (!stats) return;
+        // [단순화] 서비스 다운 상태만 알람
         const serviceStates = statusModule.updateServerList(stats, true);
-        const downServices = serviceStates.filter(s => !s.isHealthy);
+        const downServices = serviceStates.filter(s => !s.isHealthy && s.name !== 'Load Balancer');
         if (downServices.length > 0) {
-            this.addAlert('error', `${downServices.map(s => s.name).join(', ')} service(s) are down.`);
+            this.addAlert('error', `${downServices.map(s => s.name).join(', ')} service(s) are offline.`);
         }
     },
     addAlert(type, message) {
@@ -321,6 +382,7 @@ const controlsModule = {
         document.getElementById('toggle-monitoring-btn')?.addEventListener('click', this.toggleMonitoring.bind(this));
         document.getElementById('refresh-btn')?.addEventListener('click', this.refresh);
         document.getElementById('reset-stats-btn')?.addEventListener('click', this.reset);
+        document.getElementById('toggle-ws-heartbeat-btn')?.addEventListener('click', this.toggleWsHeartbeat.bind(this));
     },
     toggleMonitoring(event) {
         const btn = event.currentTarget;
@@ -333,6 +395,18 @@ const controlsModule = {
             btn.textContent = '모니터링 OFF';
             btn.classList.remove('active');
             apiService.stop();
+        }
+    },
+    toggleWsHeartbeat(event) {
+        const btn = event.currentTarget;
+        if (wsHeartbeat.enabled) {
+            wsHeartbeat.stop();
+            btn.textContent = 'WS 하트비트 OFF';
+            btn.classList.remove('active');
+        } else {
+            wsHeartbeat.start();
+            btn.textContent = 'WS 하트비트 ON';
+            btn.classList.add('active');
         }
     },
     async reset() {
