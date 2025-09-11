@@ -105,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             // [수정] 회원가입 폼의 고유 ID를 사용
             const username = document.getElementById('signup-username').value;
+            const email = document.getElementById('signup-email').value;
             const password = document.getElementById('signup-password').value;
             const errorEl = document.getElementById('signup-error');
 
@@ -112,14 +113,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 const response = await fetch('/api/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ username, email, password })
                 });
                 const data = await response.json();
                 if (response.ok) {
                     alert('회원가입 성공! 로그인 페이지로 이동합니다.');
                     window.location.hash = '/login';
                 } else {
-                    errorEl.textContent = data.error || '회원가입 실패';
+                    // FastAPI 422 등의 detail 포맷 대응
+                    if (data && data.detail) {
+                        if (typeof data.detail === 'string') {
+                            errorEl.textContent = data.detail;
+                        } else if (Array.isArray(data.detail) && data.detail.length > 0) {
+                            errorEl.textContent = (data.detail[0].msg || '유효하지 않은 입력');
+                        } else if (data.error) {
+                            errorEl.textContent = data.error;
+                        } else {
+                            errorEl.textContent = '회원가입 실패';
+                        }
+                    } else if (data && data.error) {
+                        errorEl.textContent = data.error;
+                    } else {
+                        errorEl.textContent = '회원가입 실패';
+                    }
                 }
             } catch (err) {
                 errorEl.textContent = '서버와 통신할 수 없습니다.';
