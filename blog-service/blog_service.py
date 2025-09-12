@@ -1,10 +1,14 @@
 import os
 import logging
-from fastapi import FastAPI, Request, HTTPException, Form
+import sqlite3
+from datetime import datetime
+from typing import Optional, Dict, List
+import aiohttp
+from fastapi import FastAPI, Request, HTTPException, Form, Depends, Query
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # --- 기본 로깅 설정 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -17,9 +21,40 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/blog/static", StaticFiles(directory="static"), name="static")
 
 
-# --- 임시 데이터 저장소 ---
-posts_db = {}
-users_db = {}
+# --- 설정 ---
+AUTH_SERVICE_URL = os.getenv('AUTH_SERVICE_URL', 'http://auth-service:8002')
+DATABASE_PATH = os.getenv('BLOG_DATABASE_PATH', '/app/blog.db')
+
+# --- SQLite 초기화 ---
+def init_db():
+    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                author TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+def row_to_post(row: sqlite3.Row) -> Dict:
+    return {
+        "id": row[0],
+        "title": row[1],
+        "content": row[2],
+        "author": row[3],
+        "created_at": row[4],
+        "updated_at": row[5],
+    }
+
+init_db()
 
 # --- Pydantic 모델 ---
 class UserLogin(BaseModel):
@@ -30,19 +65,69 @@ class UserRegister(BaseModel):
     username: str
     password: str
 
+class PostCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
+    content: str = Field(..., min_length=1, max_length=20000)
+
+class PostUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=120)
+    content: Optional[str] = Field(None, min_length=1, max_length=20000)
+
+# --- 인증 유틸 ---
+async def require_user(request: Request) -> str:
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        raise HTTPException(status_code=401, detail='Authorization header missing or invalid')
+    token = auth_header.split(' ')[1]
+    verify_url = f"{AUTH_SERVICE_URL}/verify"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(verify_url, headers={'Authorization': f'Bearer {token}'}) as resp:
+                data = await resp.json()
+                if resp.status != 200 or data.get('status') != 'success':
+                    raise HTTPException(status_code=401, detail='Invalid or expired token')
+                username = data.get('data', {}).get('username')
+                if not username:
+                    raise HTTPException(status_code=401, detail='Invalid token payload')
+                return username
+    except aiohttp.ClientError:
+        raise HTTPException(status_code=502, detail='Auth service not reachable')
+
 # --- API 핸들러 함수 ---
 @app.get("/api/posts")
-async def handle_get_posts():
-    """모든 블로그 게시물 목록을 반환합니다."""
-    return JSONResponse(content=list(posts_db.values()))
+async def handle_get_posts(offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    """모든 블로그 게시물 목록을 반환합니다(최신순, 페이지네이션)."""
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, title, content, author, created_at, updated_at FROM posts ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
+        rows = cursor.fetchall()
+        items = [row_to_post(r) for r in rows]
+        # 목록 응답은 요약 정보 위주로 반환 + 발췌(excerpt)
+        summaries = []
+        for p in items:
+            content = (p.get("content") or "").replace("\r", " ").replace("\n", " ")
+            excerpt = content[:120] + ("..." if len(content) > 120 else "")
+            summaries.append({
+                "id": p["id"],
+                "title": p["title"],
+                "author": p["author"],
+                "created_at": p["created_at"],
+                "excerpt": excerpt,
+            })
+        return JSONResponse(content=summaries)
 
 @app.get("/api/posts/{post_id}")
 async def handle_get_post_by_id(post_id: int):
     """ID로 특정 게시물을 찾아 반환합니다."""
-    post = posts_db.get(post_id)
-    if post:
-        return JSONResponse(content=post)
-    raise HTTPException(status_code=404, detail={'error': 'Post not found'})
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, title, content, author, created_at, updated_at FROM posts WHERE id = ?", (post_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail={'error': 'Post not found'})
+        return JSONResponse(content=row_to_post(row))
 
 @app.post("/api/login")
 async def handle_login(user_login: UserLogin):
@@ -63,6 +148,71 @@ async def handle_register(user_register: UserRegister):
     users_db[user_register.username] = {'password': user_register.password}
     logger.info(f"New user registered: {user_register.username}")
     return JSONResponse(content={'message': 'Registration successful'})
+
+@app.post("/api/posts", status_code=201)
+async def create_post(request: Request, payload: PostCreate, username: str = Depends(require_user)):
+    now = datetime.utcnow().isoformat()
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO posts (title, content, author, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (payload.title, payload.content, username, now, now)
+        )
+        post_id = cursor.lastrowid
+        conn.commit()
+    return JSONResponse(content={
+        "id": post_id,
+        "title": payload.title,
+        "content": payload.content,
+        "author": username,
+        "created_at": now,
+        "updated_at": now,
+    })
+
+@app.patch("/api/posts/{post_id}")
+async def update_post_partial(post_id: int, request: Request, payload: PostUpdate, username: str = Depends(require_user)):
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT author FROM posts WHERE id = ?", (post_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail={'error': 'Post not found'})
+        if row[0] != username:
+            raise HTTPException(status_code=403, detail='Forbidden: not the author')
+        fields = []
+        params = []
+        if payload.title is not None:
+            fields.append("title = ?")
+            params.append(payload.title)
+        if payload.content is not None:
+            fields.append("content = ?")
+            params.append(payload.content)
+        if not fields:
+            return JSONResponse(content={"message": "No changes"})
+        fields.append("updated_at = ?")
+        params.append(datetime.utcnow().isoformat())
+        params.append(post_id)
+        cursor.execute(f"UPDATE posts SET {', '.join(fields)} WHERE id = ?", tuple(params))
+        conn.commit()
+        cursor.execute("SELECT id, title, content, author, created_at, updated_at FROM posts WHERE id = ?", (post_id,))
+        out = cursor.fetchone()
+        return JSONResponse(content=row_to_post(out))
+
+@app.delete("/api/posts/{post_id}", status_code=204)
+async def delete_post(post_id: int, request: Request, username: str = Depends(require_user)):
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT author FROM posts WHERE id = ?", (post_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail={'error': 'Post not found'})
+        if row[0] != username:
+            raise HTTPException(status_code=403, detail='Forbidden: not the author')
+        cursor.execute("DELETE FROM posts WHERE id = ?", (post_id,))
+        conn.commit()
+    return JSONResponse(status_code=204, content=None)
 
 @app.get("/health")
 async def handle_health():
