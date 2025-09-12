@@ -54,6 +54,16 @@ class UserServiceDatabase:
                 user = cursor.fetchone()
                 return dict(user) if user else None
 
+    async def get_user_by_id(self, user_id: int) -> Optional[Dict]:
+        """ID로 사용자 정보를 조회합니다."""
+        async with self.lock:
+            with sqlite3.connect(self.db_file) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+                user = cursor.fetchone()
+                return dict(user) if user else None
+
     async def verify_user_credentials(self, username: str, password: str) -> Optional[Dict]:
         """사용자 자격 증명을 확인합니다."""
         user = await self.get_user_by_username(username)
