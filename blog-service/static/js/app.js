@@ -3,6 +3,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.getElementById('main-content');
     const authStatus = document.getElementById('auth-status');
 
+    // 홈 링크('#/') 클릭 시 /blog/로 리다이렉트
+    const setupHomeRedirect = () => {
+        const homeLinks = document.querySelectorAll('a[href="#/"]');
+        homeLinks.forEach((link) => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                window.location.href = '/blog/';
+            });
+        });
+    };
+    setupHomeRedirect();
+
     // 라우터 설정
     const routes = {
         '/': 'post-list-template',
@@ -58,7 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('logout-btn').addEventListener('click', (e) => {
                 e.preventDefault();
                 sessionStorage.removeItem('authToken');
-                window.location.hash = '/';
+                // SPA 해시 내비 대신 블로그 루트로 명시적 리다이렉트
+                window.location.href = '/blog/';
             });
         } else {
             authStatus.innerHTML = '<a href="#/login">로그인</a>';
