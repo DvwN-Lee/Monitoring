@@ -103,8 +103,18 @@ async def handle_get_posts(offset: int = Query(0, ge=0), limit: int = Query(20, 
         cursor.execute("SELECT id, title, content, author, created_at, updated_at FROM posts ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
         rows = cursor.fetchall()
         items = [row_to_post(r) for r in rows]
-        # 목록 응답은 요약 정보 위주로 반환
-        summaries = [{"id": p["id"], "title": p["title"], "author": p["author"], "created_at": p["created_at"]} for p in items]
+        # 목록 응답은 요약 정보 위주로 반환 + 발췌(excerpt)
+        summaries = []
+        for p in items:
+            content = (p.get("content") or "").replace("\r", " ").replace("\n", " ")
+            excerpt = content[:120] + ("..." if len(content) > 120 else "")
+            summaries.append({
+                "id": p["id"],
+                "title": p["title"],
+                "author": p["author"],
+                "created_at": p["created_at"],
+                "excerpt": excerpt,
+            })
         return JSONResponse(content=summaries)
 
 @app.get("/api/posts/{post_id}")
