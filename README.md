@@ -83,13 +83,13 @@
 - 기본 혼합 부하(목록/상세/생성)
 ```sh
 cd load-tests
-sh ./mixed_load.sh --url http://127.0.0.1:30700 --duration 60s   --rate-list 64 --rate-detail 12 --rate-create 4
+sh ./mixed_load.sh --url http://127.0.0.1:30700 --duration 60s --rate-list 64 --rate-detail 12 --rate-create 4
 ```
 
 - 확장 혼합 부하(수정/삭제 포함 + 종료 후 일부 정리)
 ```sh
 cd load-tests
-sh ./mixed_load_plus.sh --url http://127.0.0.1:30700 --duration 60s   --rate-list 40 --rate-detail 15 --rate-create 8 --rate-update 4 --rate-delete 3
+sh ./mixed_load_plus.sh --url http://127.0.0.1:30700 --duration 60s --rate-list 40 --rate-detail 15 --rate-create 8 --rate-update 4 --rate-delete 3
 ```
 
 - 생성된 테스트 게시글 정리만 실행
