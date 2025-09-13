@@ -74,29 +74,48 @@
 
 ## 부하 테스트
 
-- **스크립트**: `blog_load_test.sh` (LB → API Gateway → Blog Service의 실제 API 엔드포인트 `/api/posts` 타격)
-- **전제 조건**: `sh`, `curl`
+**위치:** `load-tests/mixed_load.sh`, `load-tests/mixed_load_plus.sh`  
+**의존성:** `sh`, `curl` *(옵션: `jq`가 있으면 `/stats` 출력이 보기 좋게 표시됨)*
 
-- **사용법**:
-  - `sh ./blog_load_test.sh --url <주소>:<포트번호> --rate 80 --duration 60`
-    - `--url`: Load Balancer 기본 URL
-    - `--rate`: 초당 요청 수(RPS), 정수
-    - `--duration`: 테스트 시간(초), 정수 또는 `60s`, `2m` 형태
-  - 경로는 `/api/posts`를 사용합니다. `/blog`(정적 SPA)는 308 리다이렉트가 발생할 수 있고, RPS 집계(실제 API 트래픽)에도 포함되지 않습니다.
 
-- **체크 포인트**
-  - `GET /stats`에서 다음 항목을 비교(스크립트가 테스트 전/후 출력)
-    - `load-balancer.requests_per_second`: 부하 중 상승해야 함(목표 100 RPS 수준)
-    - `load-balancer.avg_response_time_ms`: 최근 10초 롤링 평균의 변동
-    - `load-balancer.avg_response_time_ms_lifetime`: 누적 평균의 점진적 변화
-    - `load-balancer.success_rate`: 에러율이 낮게 유지되는지(≈100%)
-    - `load-balancer.has_real_traffic`: true로 전환되는지
-  - 대시보드에서 IDLE 해제, KPI 및 RPS 차트의 변화
+### 실행 방법
 
- - **주의 사항**
-  - WS 하트비트는 RPS/응답시간 집계에 포함되지 않습니다. 실제 API 호출(`/api/*`)만 지표에 반영됩니다.
-  - 404/422가 보이면 경로나 바디 스키마를 재확인하세요(부하는 `/api/posts` GET를 사용).
-- **Dashboard UI**: Chart.js와 바닐라 JS로 구현된 대시보드로, 각 서비스의 `/stats` 를 주기적으로 호출하여 상태와 지표를 시각화
+- 기본 혼합 부하(목록/상세/생성)
+```sh
+cd load-tests
+sh ./mixed_load.sh --url http://127.0.0.1:30700 --duration 60s --rate-list 64 --rate-detail 12 --rate-create 4
+```
+
+- 확장 혼합 부하(수정/삭제 포함 + 종료 후 일부 정리)
+```sh
+cd load-tests
+sh ./mixed_load_plus.sh --url http://127.0.0.1:30700 --duration 60s --rate-list 40 --rate-detail 15 --rate-create 8 --rate-update 4 --rate-delete 3
+```
+
+- 생성된 테스트 게시글 정리만 실행
+```sh
+sh ./mixed_load_plus.sh --url http://127.0.0.1:30700 --cleanup
+```
+
+
+### 실행 시나리오(요약)
+
+- **사전:** 테스트 사용자 **등록/로그인 → JWT 발급**, 상세 조회용 **시드 게시글 5개 생성**
+- **동시:** 
+  - 목록 `GET /api/posts`
+  - 상세 `GET /api/posts/{id}` *(시드 랜덤)*
+  - 생성 `POST /api/posts`
+- **확장:** 
+  - 수정 `PATCH /api/posts/{id}`
+  - 삭제 `DELETE /api/posts/{id}` 포함
+
+
+### 결과/모니터링
+
+- **LB `/stats`**: `requests_per_second`, `avg_response_time_ms`, `success_rate`, `has_real_traffic` 확인
+- **실패율**은 낮게(**≈2% 미만**), **p95 지연**은 허용 범위 내로 유지되도록 **RPS/지속시간**을 조정
+
+> **주의:** 시드 글은 제목이 `seed-` → **수정 시** `upd-`로 바뀔 수 있고, 확장 스크립트 정리는 **“이번 실행에서 생성한 글”** 위주로 진행됩니다. 동일 제목의 다른 글이 남아 보일 수 있으니 **ID 기준**으로 확인하세요.
 
 ## 로컬 실행
 
