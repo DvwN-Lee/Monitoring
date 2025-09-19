@@ -8,7 +8,7 @@ RUN go mod download || true
 COPY . .
 RUN go mod tidy || true
 
-# CGO_ENABLED=0: C 라이브러리 없이 순수 Go 코드로 빌드 (이미지 경량화)
+# CGO_ENABLED=0:순수 Go 코드로 빌드 (이미지 경량화)
 # -o /app/server: 빌드 결과물을 /app/server 파일로 생성
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/server .
 

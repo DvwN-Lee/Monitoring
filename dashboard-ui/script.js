@@ -12,7 +12,7 @@ const config = {
     heartbeat: {
         enabled: false,
         // 실제 API 트래픽으로 집계되도록 API 게이트웨리 헬스 체크 경로로 전송
-        // (LB는 /api/*만 실제 트래픽으로 계산하고 HEAD/X-Heartbeat 는 제외함)
+        // (LB는 /api/*만 실제 트래픽으로 계산하고 HEAD/X-Heartbeat 는 제외)
         path: '/api/health',
         method: 'GET',
         interval: 2000,
@@ -157,7 +157,7 @@ const apiService = {
         }
     },
     async resetAllStats() {
-        // 이 기능은 현재 구현되지 않았습니다.
+        // 이 기능은 현재 구현되지 않음
         console.warn('Reset stats functionality is not implemented in the backend.');
         return Promise.resolve(true);
     },

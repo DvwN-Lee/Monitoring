@@ -25,5 +25,5 @@ class Config:
         self.services = ServiceUrls()
 
 # 다른 파일에서 'from config import config'로 쉽게 사용할 수 있도록
-# 전역 인스턴스를 생성합니다.
+# 전역 인스턴스를 생성
 config = Config()

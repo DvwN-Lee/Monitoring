@@ -6,6 +6,7 @@ from config import config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+"""캐시 클래스"""
 class CacheService:
     def __init__(self):
         try:

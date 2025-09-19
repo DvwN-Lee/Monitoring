@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
-    """로드밸런서 설정 클래스"""
+    """로드밸런서 설정"""
     HOST: str = os.getenv('LB_HOST', '0.0.0.0')
     PORT: int = int(os.getenv('LB_PORT', '7100'))
     API_GATEWAY_URL: str = os.getenv('API_GATEWAY_URL', 'http://api-gateway-service:8000')
