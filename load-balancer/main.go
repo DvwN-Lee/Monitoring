@@ -25,7 +25,7 @@ type StatsCollector struct {
     successCount      int64
     totalResponseTime time.Duration
 
-	// 최근 응답시간 샘플(전체)
+	// 최근 응답시간 샘플
 	responseSamples []struct{ ts time.Time; dur time.Duration }
 
 	// 실제 API 요청만 분리 집계 (대시보드 지표 반영용)

@@ -9,7 +9,6 @@ from typing import Optional
 from database_service import UserServiceDatabase
 from cache_service import CacheService
 
-# ... (UserIn, UserOut, Credentials 모델은 그대로 유지) ...
 class UserIn(BaseModel):
     username: str
     email: EmailStr
@@ -28,7 +27,7 @@ app = FastAPI()
 db = UserServiceDatabase()
 cache = CacheService()
 
-# --- [추가] User Service의 통계 및 DB/Cache 상태를 반환하는 엔드포인트 ---
+# --- User Service의 통계 및 DB/Cache 상태를 반환하는 엔드포인트 ---
 @app.get("/stats")
 async def handle_stats():
     # DB와 Cache의 상태를 실시간으로 확인
@@ -43,7 +42,7 @@ async def handle_stats():
     return {
         "user_service": {
             "service_status": service_status,
-            # [핵심] 대시보드가 인식할 수 있는 키로 DB와 Cache 상태를 제공
+            # 대시보드가 인식할 수 있는 키로 DB와 Cache 상태를 제공
             "database": {
                 "status": "healthy" if is_db_healthy else "unhealthy"
             },

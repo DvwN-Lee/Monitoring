@@ -77,7 +77,7 @@ class UserServiceDatabase:
         async with self.lock:
             try:
                 with sqlite3.connect(self.db_file) as conn:
-                    # 간단한 쿼리를 실행하여 연결을 테스트합니다.
+                    # 간단한 쿼리를 실행하여 연결 테스트
                     conn.execute("SELECT 1")
                 return True
             except Exception as e:

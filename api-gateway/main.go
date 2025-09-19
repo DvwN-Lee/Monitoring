@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-// ... (getEnv, newProxy 함수는 그대로 유지) ...
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value

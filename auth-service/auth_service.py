@@ -16,7 +16,7 @@ class AuthService:
         logger.info("Auth service initialized for JWT-based authentication.")
 
     async def _verify_user_from_service(self, username, password):
-        """(Helper) User-service에 자격 증명 확인을 요청하는 로직"""
+        """User-service에 자격 증명 확인을 요청하는 로직"""
         payload = {"username": username, "password": password}
         try:
             async with aiohttp.ClientSession() as session:
