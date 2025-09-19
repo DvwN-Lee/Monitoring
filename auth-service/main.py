@@ -14,7 +14,6 @@ app = FastAPI()
 auth_service = AuthService()
 
 # --- API 엔드포인트 ---
-
 @app.post("/login")
 async def handle_login(request: Request):
     """로그인 요청을 처리하고 JWT 토큰을 반환합니다."""

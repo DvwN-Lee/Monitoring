@@ -9,7 +9,7 @@ class ServerConfig:
 
 @dataclass
 class DatabaseConfig:
-    # [수정] getenv를 사용하여 환경변수를 읽고, 값이 없으면 기본값을 사용하도록 변경
+    # getenv를 사용하여 환경변수를 읽고, 값이 없으면 기본값을 사용하도록 변경
     db_file: str = os.getenv('DATABASE_PATH', '/data/app.db')
 
 @dataclass

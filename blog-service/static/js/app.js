@@ -1,4 +1,3 @@
-// blog-service/static/js/app.js
 document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.getElementById('main-content');
     const authStatus = document.getElementById('auth-status');

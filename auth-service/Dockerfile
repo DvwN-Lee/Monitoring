@@ -1,5 +1,3 @@
-# auth-service/Dockerfile
-
 # 1. 베이스 이미지 설정
 FROM python:3.11-slim
 
