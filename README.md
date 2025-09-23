@@ -1,5 +1,6 @@
 # Monitoring Service
-
+<img width="569" height="622" alt="Image" src="https://github.com/user-attachments/assets/99b730cd-feba-49a2-a371-90b1f8ad786e" />
+<img width="715" height="657" alt="Image" src="https://github.com/user-attachments/assets/add70b72-4738-4f25-8551-db658cdb7a5f" />
 마이크로서비스 기반의 쿠버네티스 모니터링 대시보드 프로젝트입니다. 각 서비스는 독립적으로 컨테이너화되어 있으며 로드밸런서를 통해 트래픽이 분배되고, 대시보드를 통해 실시간 상태를 확인할 수 있습니다.
 
 ## 프로젝트 구조
