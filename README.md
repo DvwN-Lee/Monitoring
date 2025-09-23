@@ -1,5 +1,5 @@
 # Monitoring Service
-<img width="700" height="800" alt="dashboard" src="https://github.com/user-attachments/assets/9a7b890b-1d7c-4c96-826f-e019df475dfb" />
+<p align="center"><img width="700" height="800" alt="dashboard" src="https://github.com/user-attachments/assets/9a7b890b-1d7c-4c96-826f-e019df475dfb" /></p>
 <img width="700" height="800" alt="blog" src="https://github.com/user-attachments/assets/338f5ded-daa4-46fa-9487-46ec1c058d7e" />
 
 
