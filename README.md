@@ -196,7 +196,7 @@ skaffold delete
 - Docker / Docker Compose
 - kubectl, Skaffold, Kustomize
 - Go 1.22+, Python 3.10+
--
+
 ## 데이터 백업 CronJob
 
 - **목적**: `user-service`의 SQLite(`users.db`)를 주기적으로 백업하여 디스크 장애·실수로 인한 손상에 대비합니다.
