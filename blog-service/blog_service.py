@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional, Dict, List
 import aiohttp
-from fastapi import FastAPI, Request, HTTPException, Form, Depends, Query
+from fastapi import FastAPI, Request, HTTPException, Form, Depends, Query, Response
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -212,7 +212,7 @@ async def delete_post(post_id: int, request: Request, username: str = Depends(re
             raise HTTPException(status_code=403, detail='Forbidden: not the author')
         cursor.execute("DELETE FROM posts WHERE id = ?", (post_id,))
         conn.commit()
-    return JSONResponse(status_code=204, content=None)
+    return Response(status_code=204)
 
 @app.get("/health")
 async def handle_health():
