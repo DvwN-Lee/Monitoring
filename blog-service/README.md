@@ -5,16 +5,16 @@
 
 - **SPA 프론트엔드 내장**: 이 서비스는 게시물 관리를 위한 API뿐만 아니라, 사용자가 직접 상호작용할 수 있는 SPA(Single Page Application) 형태의 웹 UI를 함께 제공함. UI는 `templates`와 `static` 폴더에 저장된 HTML, CSS, JavaScript 파일로 구성됨
 
-- **독립적인 데이터 관리**: 게시물 데이터는 서비스 내부에 있는 **SQLite** 데이터베이스 파일(`blog.db`)에 영속적으로 저장 및 관리됨
+- **독립적인 데이터 관리**: 게시물 데이터는 서비스 내부에 있는 **SQLite** 데이터베이스 파일(`blog.db`)에 영속적으로 저장 및 관리됨. 단, 서비스 시작 시 초기화되는 인메모리 데이터(`posts_db`, `users_db`)도 별도로 존재하며, 일부 엔드포인트(`/api/login`, `/api/register`, `/stats`)는 이 인메모리 데이터를 참조함
 
 ## 2. 핵심 기능 및 책임
 - **게시물 관리 (Post Management)**: 게시물의 생성, 목록 조회, 상세 조회, 수정, 삭제 기능을 위한 API 엔드포인트를 제공
 
-- **인증 및 인가 (Authentication & Authorization)**: 게시물 생성, 수정, 삭제와 같이 보호가 필요한 기능에 접근할 때, `auth-service`와 연동하여 사용자의 JWT 토큰을 검증함. 또한, 게시물 수정 및 삭제는 **게시물을 작성한 본인**만 가능하도록 인가(Authorization) 로직을 포함
+- **인증 및 인가 (Authentication & Authorization)**: 게시물 생성, 수정, 삭제와 같이 보호가 필요한 기능에 접근할 때, `auth-service`와 연동하여 사용자의 JWT 토큰을 검증함. 또한, 게시물 수정 및 삭제는 **게시물을 작성한 본인**만 가능하도록 인가(Authorization) 로직을 포함. 추가로, 인메모리 사용자 데이터를 사용하는 자체 로그인(`/api/login`) 및 회원가입(`/api/register`) 엔드포인트도 제공
 
 - **웹 UI 제공**: `Jinja2` 템플릿 엔진을 사용하여 `index.html`을 렌더링하고, 정적 파일(JS, CSS)을 직접 서빙하여 사용자에게 완전한 블로그 웹 애플리케이션을 제공
 
-- **모니터링 지원**: `load-balancer`의 상태 수집을 위한 헬스 체크(`- /health`) 및 통계(`- /stats`) 엔드포인트를 지원
+- **모니터링 지원**: `load-balancer`의 상태 수집을 위한 헬스 체크(`/health`) 및 통계(`/stats`) 엔드포인트를 지원. `/stats`는 인메모리 `posts_db`의 게시물 수를 반환하며, SQLite DB의 실제 게시물 수와 다를 수 있음
 
 ## 3. 기술적 구현 (`blog_service.py`, `static/js/app.js`)
 - 백엔드는 **FastAPI**로, 데이터베이스는 **SQLite**로 구현되어 있으며, 인증을 위해 `auth-service`와 비동기 HTTP 통신(`aiohttp`)을 수행
@@ -39,6 +39,10 @@
 |`/api/posts/{id}`|`GET`|X|특정 ID를 가진 게시물의 상세 정보를 조회|
 |`/api/posts/{id}`|`PATCH`|O|게시물 정보를 수정. 작성자 본인만 가능|
 |`/api/posts/{id}`|`DELETE`|O|게시물을 삭제. 작성자 본인만 가능|
+|`/api/login`|`POST`|X|인메모리 사용자 데이터 기반 로그인 처리|
+|`/api/register`|`POST`|X|인메모리 사용자 데이터 기반 회원가입 처리|
+|`/health`|`GET`|X|서비스 상태 확인을 위한 헬스 체크. 응답: `{"status": "ok", "service": "blog-service"}`|
+|`/stats`|`GET`|X|인메모리 `posts_db` 기반 게시물 수 등 통계 반환. 응답: `{"blog_service": {"service_status": "online", "post_count": <int>}}`|
 
 ## 5. 웹 인터페이스 엔드포인트
 |경로|메서드|설명|

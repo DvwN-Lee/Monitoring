@@ -14,7 +14,7 @@
 
 - **토큰 검증 (Token Verification)**: 다른 서비스(예: `blog-service`)에서 API 접근 권한을 확인하기 위해 전달한 토큰의 서명, 만료 시간 등을 검증하고 결과를 반환
 
-- **모니터링 지원**: `load-balancer`가 서비스 상태를 수집할 수 있도록 헬스 체크(`- /health`) 및 간단한 통계(`- /stats`) 엔드포인트를 제공
+- **모니터링 지원**: `load-balancer`가 서비스 상태를 수집할 수 있도록 헬스 체크(`/health`) 및 간단한 통계(`/stats`) 엔드포인트를 제공
 
 ## 3. 기술적 구현 (`auth_service.py`, `main.py`)
 - Python의 비동기 웹 프레임워크인 **FastAPI**를 기반으로 API 서버를 구현했으며, `user-service`와의 통신을 위해 비동기 HTTP 클라이언트 라이브러리인 **aiohttp**를 사용
@@ -25,7 +25,7 @@
     - `user-service`는 DB를 조회하여 해당 사용자의 자격 증명이 유효한지 확인하고 결과를 반환
 -   **JWT 페이로드 생성**: `user-service`로부터 성공 응답을 받으면, 토큰에 담을 정보를 구성
     - 페이로드에는 `user_id`, `username`, 그리고 **24시간 후 만료되는 시간(`exp`)**이 포함됨
--   **토큰 서명 및 발급**: `PyJWT` 라이브러리를 사용하여 구성된 페이로드를 **HS256 알고리즘**과 환경 변수로 설정된 `JWT_SECRET` 키로 서명하여 최종 토큰을 생성하고 클라이언트에게 반환
+-   **토큰 서명 및 발급**: `PyJWT` 라이브러리를 사용하여 구성된 페이로드를 **HS256 알고리즘**과 환경 변수로 설정된 `INTERNAL_API_SECRET` 키로 서명하여 최종 토큰을 생성하고 클라이언트에게 반환
 
 ### 3.2. 토큰 검증 로직 (`verify_token` 함수)
 - 다른 서비스가 보호된 리소스에 대한 접근을 요청할 때, `Authorization: Bearer <token>` 헤더를 이 서비스의 `/verify` 엔드포인트로 전달
@@ -40,11 +40,11 @@
 |`/login`|`POST`|사용자 아이디와 비밀번호로 로그인을 시도하고, 성공 시 JWT를 반환|
 |`/verify`|`GET`|`Authorization` 헤더로 전달된 JWT의 유효성을 검증|
 |`/health`|`GET`|서비스의 상태를 확인하는 헬스 체크 엔드포인트. 항상 `200 OK`를 반환|
-|`/stats`|`GET`|`load-balancer`가 모니터링을 위해 사용하는 통계 엔드포인트|
+|`/stats`|`GET`|`load-balancer`가 모니터링을 위해 사용하는 통계 엔드포인트. 응답: `{"auth": {"service_status": "online", "active_session_count": 0}}`|
 
 ## 5. 컨테이너화 (`Dockerfile`)
 - **베이스 이미지**: `python:3.11-slim`을 사용하여 가볍고 효율적인 환경을 구성
-- **의존성 설치**: `requirements.txt`에 명시된 라이브러리(`fastapi`, `uvicorn`, `pyjwt`, `aiohttp`)를 설치
+- **의존성 설치**: `requirements.txt`에 명시된 라이브러리(`fastapi`, `uvicorn[standard]`, `pyjwt`, `aiohttp`)를 설치
 - **애플리케이션 실행**: `uvicorn` ASGI 서버를 사용하여 FastAPI 애플리케이션을 실행
 
 ## 6. 설정 (`config.py`)

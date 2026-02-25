@@ -12,10 +12,10 @@
 - **사용자 인터페이스**: 모니터링 시작/중지, 수동 새로고침, WebSocket 하트비트 활성화/비활성화 등 사용자가 직접 대시보드를 제어할 수 있는 컨트롤 버튼을 제공
 
 ## 3. 기술 구현 (`script.js`)
-- 대시보드의 모든 로직은 단일 JavaScript 파일(`script.js`) 내에서 각 기능별로 **모듈화된 객체**(`apiService`, `chartModule`, `statusModule` 등)를 통해 체계적으로 관리됨
+- 대시보드의 모든 로직은 단일 JavaScript 파일(`script.js`) 내에서 각 기능별로 **모듈화된 객체**(`apiService`, `chartModule`, `statusModule`, `alertModule`, `controlsModule`, `utilityModule` 등)를 통해 체계적으로 관리됨
 
 ### 3.1. 모듈 기반 아키텍처 및 이벤트 버스
-- **기능별 모듈**: `apiService` (API 통신), `chartModule` (차트 관리), `statusModule` (상태 텍스트 업데이트) 등 각 객체가 특정 UI 요소나 기능을 전담하여 코드의 응집도를 높임
+- **기능별 모듈**: `apiService` (API 통신), `chartModule` (차트 관리), `statusModule` (상태 텍스트 업데이트), `alertModule` (서비스 다운 알림), `controlsModule` (버튼 이벤트 처리), `utilityModule` (로그 표시 및 시간 관리) 등 각 객체가 특정 UI 요소나 기능을 전담하여 코드의 응집도를 높임
 - **`eventBus`를 통한 통신**: `apiService`가 `/stats` API로부터 새로운 데이터를 받아오면, `eventBus.publish('statsUpdated', ...)`를 통해 데이터 수신 이벤트를 발행함. `chartModule`이나 `statusModule`과 같은 다른 모듈들은 이 이벤트를 구독(`subscribe`)하고 있다가, 이벤트가 발생하면 각자 맡은 UI를 업데이트하는 방식으로 동작. 이를 통해 모듈 간의 직접적인 의존성을 제거함
 
 ### 3.2. WebSocket 하트비트 로직
@@ -41,4 +41,4 @@
 - **콘텐츠 배포**: `COPY` 명령어를 사용하여 `index.html`과 `script.js` 파일을 Nginx의 기본 웹 루트 디렉터리인 `/usr/share/nginx/html/`로 복사하여 컨테이너가 시작될 때 바로 서비스할 수 있도록 구성
 
 ## 6. 설정
-- `dashboard-ui` 서비스는 별도의 환경 변수 설정이 없음. API 호출 주기(`refreshInterval`), 차트의 최대 데이터 포인트 수(`maxChartPoints`) 등 모든 주요 설정은 `script.js` 파일 상단의 `config` 객체에 하드코딩되어 있음
+- `dashboard-ui` 서비스는 별도의 환경 변수 설정이 없음. API 호출 주기(`refreshInterval`), 차트의 최대 데이터 포인트 수(`maxChartPoints`), 최대 로그 항목 수(`maxLogEntries`), 최대 알림 수(`maxAlerts`) 등 모든 주요 설정은 `script.js` 파일 상단의 `config` 객체에 하드코딩되어 있음

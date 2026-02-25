@@ -1,7 +1,7 @@
 # Load Testing Scripts (load-tests)
 
 ## 1. 개요
-- **부하 테스트 스크립트 모음**: 이 디렉터리는 `blog-service`의 API에 다양한 유형의 부하를 발생시켜 시스템의 성능과 안정성을 측정하기 위한 셸 스크립트(`- .sh`)들을 포함하고 있음
+- **부하 테스트 스크립트 모음**: 이 디렉터리는 `blog-service`의 API에 다양한 유형의 부하를 발생시켜 시스템의 성능과 안정성을 측정하기 위한 셸 스크립트(`.sh`)들을 포함하고 있음
 - **순수 셸 및 curl 기반**: 별도의 부하 테스트 도구 설치 없이, `sh`와 `curl` 명령어만으로 실행할 수 있도록 작성되어 사용 편의성이 높음 (`jq`가 설치되어 있으면 결과 확인이 더 용이함)
 - **다양한 시나리오 제공**: 단순 조회 위주의 테스트(`mixed_load.sh`)부터, 생성/수정/삭제를 포함하는 복합적인 시나리오(`mixed_load_plus.sh`) 및 특정 API의 기능 진단을 위한 스크립트(`diag_delete.sh`)까지 제공하여 다각적인 테스트를 지원함
 
@@ -61,6 +61,8 @@
 
 ## 5. 설정 (스크립트 인자)
 - `--url`: 부하를 가할 대상인 로드밸런서의 기본 주소 (필수)
-- `--duration`: 부하 테스트를 지속할 시간 (예: `60s`, `2m`)
-- `--rate-*`: 각 API 종류별로 초당 보낼 요청 수 (RPS)
+- `--duration`: 부하 테스트를 지속할 시간 (예: `60s`, `2m`) (`mixed_load.sh`, `mixed_load_plus.sh`)
+- `--rate-list`, `--rate-detail`, `--rate-create`: 각 API 종류별로 초당 보낼 요청 수 (RPS) (`mixed_load.sh`, `mixed_load_plus.sh`)
+- `--rate-update`, `--rate-delete`: 수정/삭제 API의 초당 요청 수 (`mixed_load_plus.sh` 전용)
 - `--cleanup`: (`mixed_load_plus.sh` 전용) 테스트 종료 후 생성된 데이터를 정리
+- `--username`, `--password`: (`diag_delete.sh` 전용) 기존 사용자 자격 증명 제공. 생략 시 임시 사용자를 자동 생성
