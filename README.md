@@ -17,6 +17,7 @@
 ├── load-balancer    # Go 로드밸런서 및 통계 수집기
 ├── dashboard-ui     # Chart.js 기반 모니터링 대시보드
 ├── k8s-manifests    # Kustomize 기반 쿠버네티스 매니페스트
+├── load-tests       # 부하 테스트 셸 스크립트
 ├── docker-compose.yml
 └── skaffold.yaml
 ```
@@ -78,7 +79,7 @@
 
 ## 부하 테스트
 
-**위치:** `load-tests/mixed_load.sh`, `load-tests/mixed_load_plus.sh`  
+**위치:** `load-tests/mixed_load.sh`, `load-tests/mixed_load_plus.sh`, `load-tests/diag_delete.sh`
 **의존성:** `sh`, `curl` *(옵션: `jq`가 있으면 `/stats` 출력이 보기 좋게 표시됨)*
 
 
@@ -99,6 +100,11 @@ sh ./mixed_load_plus.sh --url http://127.0.0.1:30700 --duration 60s --rate-list 
 - 생성된 테스트 게시글 정리만 실행
 ```sh
 sh ./mixed_load_plus.sh --url http://127.0.0.1:30700 --cleanup
+```
+
+- 삭제 기능 진단(생성→조회→삭제→확인)
+```sh
+sh ./diag_delete.sh --url http://127.0.0.1:30700
 ```
 
 
@@ -195,7 +201,7 @@ skaffold delete
 
 - Docker / Docker Compose
 - kubectl, Skaffold, Kustomize
-- Go 1.22+, Python 3.10+
+- Go 1.24+, Python 3.10+
 
 ## 데이터 백업 CronJob
 
