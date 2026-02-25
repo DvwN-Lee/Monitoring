@@ -35,6 +35,7 @@
 - **`patches`**:
     - `load-balancer-service`의 타입을 `ClusterIP`에서 **`NodePort`**로 변경하여, 로컬 머신의 특정 포트(30700)를 통해 외부에서 직접 접근할 수 있도록 함
     - 모든 `Deployment`의 `imagePullPolicy`를 **`IfNotPresent`**로 변경하여, 이미지가 로컬에 있을 경우 다시 내려받지 않도록 해 개발 속도를 향상시킴
+    - `user-service-data-pvc`의 스토리지 요청량을 **`100Mi`**로 축소하여 로컬 환경의 디스크 사용량을 최소화함
 
 ## 4. 배포 방법
 - 이 프로젝트의 쿠버네티스 배포는 **Skaffold**를 통해 자동화됨
