@@ -18,10 +18,14 @@ services:
       # 컨테이너 내부에서 사용할 환경 변수. 다른 서비스의 주소를 알려줍니다.
       - API_GATEWAY_URL=http://api-gateway:8000
       - DASHBOARD_UI_URL=http://dashboard-ui:80
+      - AUTH_SERVICE_URL=http://auth-service:8002
+      - BLOG_SERVICE_URL=http://blog-service:8005
+      - USER_SERVICE_URL=http://user-service:8001
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET} # .env 파일이나 셸 환경에서 값을 가져옴
     depends_on:
       - api-gateway
       - dashboard-ui
+      - blog-service
 
   # 2. API 게이트웨이
   api-gateway:
@@ -32,9 +36,11 @@ services:
     environment:
       - USER_SERVICE_URL=http://user-service:8001
       - AUTH_SERVICE_URL=http://auth-service:8002
+      - BLOG_SERVICE_URL=http://blog-service:8005
     depends_on:
       - user-service
       - auth-service
+      - blog-service
 
   # 3. 사용자 서비스 (신규)
   user-service:
@@ -58,17 +64,29 @@ services:
       - titanium-net
     environment:
       - USER_SERVICE_URL=http://user-service:8001
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET} # JWT 서명 키
     depends_on:
       - user-service
 
-  # 5. 대시보드 UI
+  # 5. 블로그 서비스
+  blog-service:
+    image: ${DOCKER_HUB_ID:-dongju101}/titanium-blog-service:latest
+    container_name: blog-service
+    networks:
+      - titanium-net
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8002
+    depends_on:
+      - auth-service
+
+  # 6. 대시보드 UI
   dashboard-ui:
     image: ${DOCKER_HUB_ID:-dongju101}/titanium-ui:latest
     container_name: dashboard-ui
     networks:
       - titanium-net
 
-  # 6. 레디스 (캐시)
+  # 7. 레디스 (캐시)
   redis:
     image: redis:7-alpine
     container_name: redis
