@@ -71,3 +71,7 @@ vendor/
 .vscode/
 *.swp
 *~
+
+# MCP
+
+.gemini-mcp/
