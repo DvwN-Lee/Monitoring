@@ -1,6 +1,5 @@
-# Monitoring Service
+# AI-Powered K8s Operations Platform
 <p align="center"><img width="700" height="800" alt="dashboard" src="https://github.com/user-attachments/assets/9a7b890b-1d7c-4c96-826f-e019df475dfb" /></p>
-<p align="center"><img width="700" height="800" alt="blog" src="https://github.com/user-attachments/assets/338f5ded-daa4-46fa-9487-46ec1c058d7e" /></p>
 
 마이크로서비스 기반 쿠버네티스 모니터링 플랫폼으로, 실시간 관측 인프라(Go Load Balancer, FastAPI 서비스, WebSocket 하트비트)를 AI Agent가 호출 가능한 Tool로 설계한 프로젝트입니다.
 
@@ -37,7 +36,7 @@
 ## AI Agent 확장 설계
 
 > 이 섹션은 기존 모니터링 인프라를 AI Agent의 Tool로 확장하기 위한 아키텍처 설계입니다.
-> 현재 코드베이스에는 AI Agent Layer가 포함되어 있지 않으며, 실제 MCP Server 개발 경험([gemini-mcp](https://www.npmjs.com/package/@dongju101/gemini-mcp), npm 퍼블리시)을 기반으로 설계되었습니다. stats-mcp부터 순차적으로 구현할 계획입니다.
+> 현재 코드베이스에는 AI Agent Layer가 포함되어 있지 않으며, stats-mcp부터 순차적으로 구현할 계획입니다.
 
 ### 설계 배경
 
@@ -190,18 +189,6 @@ graph TD
 6. 조치 방안: Pod 재시작 + 향후 write-ahead logging 모드 전환 권고
 7. Human-in-the-loop: 운영자 승인 후 `kubectl-mcp`로 rollout restart 실행
 8. 재시작 후 `stats-mcp`로 복구 확인 → 리포트 생성
-
-### 관련 경험
-
-> **MCP Server 개발 경험**: [gemini-mcp](https://www.npmjs.com/package/@dongju101/gemini-mcp) — Gemini CLI를 MCP Server로 래핑한 TypeScript 패키지 (npm 퍼블리시)
-> - FastMCP v3.33.0 기반, 2,062 lines 소스 / 2,869 lines 테스트
-> - 멀티세션 아키텍처, 토큰 자동 리셋, fallback chain 구현
-> - 이 경험을 바탕으로 기존 모니터링 인프라의 MCP Tool 변환을 설계했습니다.
-
-> **Multi-Agent 시스템 분석 경험** (별도 프로젝트)
-> - Claude Code Agent Teams 내부 프로토콜 분석 (메시지 라우팅, 세션 관리)
-> - Named Pipe / inotify 기반 Multi-Agent IPC 직접 구현
-> - 이 경험이 LangGraph Agent의 상태 관리 및 에스컬레이션 설계에 반영되었습니다.
 
 ---
 
