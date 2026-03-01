@@ -9,7 +9,7 @@ Go + FastAPI 마이크로서비스 기반 쿠버네티스 모니터링 플랫폼
 
 | 역량 | 증거 |
 |---|---|
-| 마이크로서비스 설계 | Go (API Gateway, Load Balancer) + FastAPI (Auth, User, Blog) 6개 서비스 |
+| 마이크로서비스 설계 | Go (API Gateway, Load Balancer) + FastAPI (Auth, User, Blog) 5개 서비스 |
 | K8s 배포 및 운영 | Kustomize base/overlay, Skaffold, CronJob 백업, 네임스페이스 분리 |
 | 실시간 모니터링 | `/stats` 병렬 수집 (goroutine), Chart.js 대시보드, WebSocket 하트비트 |
 
