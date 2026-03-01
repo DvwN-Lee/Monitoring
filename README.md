@@ -5,7 +5,7 @@
 
 마이크로서비스 기반 쿠버네티스 모니터링 플랫폼으로, 실시간 관측 인프라(Go Load Balancer, FastAPI 서비스, WebSocket 하트비트)를 AI Agent가 호출 가능한 Tool로 설계한 프로젝트입니다.
 
-**핵심 키워드**: `MCP Server` | `LangGraph Agent` | `Multi-Agent IPC` | `Go` | `FastAPI` | `Kubernetes` | `Claude Code`
+**핵심 키워드**: `MCP Server` | `LangGraph Agent` | `Go` | `FastAPI` | `Kubernetes`
 
 > AI Agent 자동 장애 진단 설계 → [AI Agent 확장 설계](#ai-agent-확장-설계)
 
@@ -13,9 +13,7 @@
 
 | 역량 | 증거 |
 |---|---|
-| MCP Server 설계 + 실전 | [gemini-mcp](https://www.npmjs.com/package/@dongju101/gemini-mcp) npm 퍼블리시 — 2,062L 소스 / 2,869L 테스트 |
-| Multi-Agent 시스템 이해 | Claude Code Agent Teams 프로토콜 분석, Named Pipe IPC 구현 |
-| 프로덕션 인프라 설계 | Go + FastAPI 마이크로서비스, K8s, 동일 플랫폼 3회 재구축 |
+| 프로덕션 인프라 설계 | Go + FastAPI 마이크로서비스, Kubernetes, WebSocket 하트비트 |
 | AI Agent Tool 변환 설계 | 기존 /stats, kubectl, logs → MCP Server Layer 매핑 |
 
 ## 프로젝트 구조
@@ -203,50 +201,7 @@ graph TD
 
 ---
 
-## 개발자 역량 상세
-
-### MCP Server 실전 경험
-
-**gemini-mcp** (npm 퍼블리시)
-- Gemini CLI를 MCP(Model Context Protocol) Server로 래핑한 TypeScript 패키지
-- **구현 규모**: 2,062 lines 소스 코드 / 2,869 lines 테스트 코드
-- **기술 스택**: FastMCP v3.33.0, 멀티세션 아키텍처, 자동 토큰 리셋, fallback chain 구현
-- **운영 경험**: Memory MCP, Context7, Playwright MCP 프로덕션 운영
-- **설계 반영**: 이 경험이 stats-mcp(기존 `/stats` 인프라 래핑), kubectl-mcp(K8s 운영), logs-mcp(로그 조회) 설계에 직접 반영됨
-
-### Multi-Agent 시스템 분석
-
-**Claude Code Agent Teams 아키텍처 분석**
-- Agent 간 메시지 라우팅 및 세션 관리 프로토콜을 프로토콜 레벨에서 분석
-- **IPC 직접 구현**: Named Pipe / inotify 기반 Multi-Agent IPC 구현
-  - Agent 간 상태 동기화, 메시지 큐, 세션 수명 주기 관리 직접 경험
-- **설계 반영**: 이 경험이 LangGraph Agent의 상태 머신 설계, 멀티 에이전트 간 에스컬레이션 메커니즘, Human-in-the-loop 검증 로직에 반영됨
-
-### 기술적 성장: 동일 플랫폼 3회 재구축
-
-**v1** (현재 이 레포)
-- 스택: Go(API Gateway, Load Balancer) + FastAPI(마이크로서비스)
-- 플랫폼: Kubernetes + Kustomize
-- 목표: 안정적 처리량 100 RPS, WebSocket 하트비트 기반 활동 감지
-- 핵심 학습: 마이크로서비스 간 타임아웃 격리, 비동기 메트릭 수집 최적화, 상태 저장 서비스 설계
-
-**v2** (CloudStack/Terraform/Istio)
-- 스택: 동일 애플리케이션, 인프라 완전 재설계
-- 성과: **P99 응답시간 99.5% 감소**, 자동 스케일링 구현
-- 커밋 수: 224개
-- 핵심 학습: 클라우드 네이티브 설계, Istio를 통한 트래픽 관리, Terraform 코드형 인프라의 반복 가능성
-
-**v3** (GCP/K3s/ArgoCD)
-- 스택: 마이크로서비스 + 엣지 컴퓨팅(K3s)
-- 플랫폼: GCP 실배포 (실제 운영)
-- 커밋 수: 237개
-- 핵심 학습: GitOps 기반 배포 자동화(ArgoCD), 엣지-클라우드 하이브리드 아키텍처, 비용 최적화와 성능의 trade-off
-
-**버전 간 전환 이유**
-- v1→v2: "이 설계가 인프라를 바꾸면 얼마나 개선될까?" 검증 / 자동 스케일링 필요성 확인
-- v2→v3: "엣지 환경에서도 동일한 지표 수집 패턴이 작동할까?" 검증 / GitOps 배포 모델 학습
-
-### 개발 프로세스
+## 개발 프로세스
 
 **Claude Code Agent Teams 기반 스크럼 개발**
 - 이 레포도 Agent Team(Team Lead, Developers 등)이 협력하여 스크럼 방식으로 개발
